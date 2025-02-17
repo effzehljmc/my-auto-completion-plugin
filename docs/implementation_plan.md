@@ -1,125 +1,204 @@
-**Implementierungsplan für das in “prd.md” beschriebene Obsidian Copilot Plugin**
+# Implementation Plan
 
-Die folgenden Schritte beschreiben einen möglichen Ablauf, um die im Product Requirements Document (PRD) definierten Funktionen erfolgreich umzusetzen. Dabei wird davon ausgegangen, dass bereits ein Basis-Plugin-Projekt für Obsidian existiert (Ordnerstruktur, Build-Prozess, etc.), wie unter anderem in den Codeausschnitten der Repo ersichtlich ist.
+## 1. Grundlegende Architektur und Projektstruktur ✅
 
----
+1. Projektgrundlagen ✅
+   - Funktionierendes Obsidian-Plugin-Gerüst mit TypeScript
+   - Abhängigkeiten in `package.json`
+   - Basis-Plugin-Klasse in `src/main.ts`
 
-## 1. Grundlegende Architektur und Projektstruktur
+2. Systemaufteilung in Module ✅
+   - Services-Architektur implementiert in `src/services/`
+   - Modulare Komponenten für UI, Daten und Dienste
+   - Gemeinsame Utilities in `src/editor_helpers.ts`
 
-1. Projektgrundlagen schaffen  
-   - Sicherstellen, dass ein funktionierendes Obsidian-Plugin-Gerüst vorliegt (z. B. mit TypeScript, wie im Code gezeigt).  
-   - Prüfen, ob alle nötigen Abhängigkeiten verfügbar sind (z. B. obsidian, CodeMirror-Komponenten, eventuelle AI-Services).
-
-2. Systemaufteilung in Module  
-   - UI-/UX-Komponenten (z. B. SuggestionPopup).  
-   - Daten- und Service-Schichten (z. B. FileScanner, WordList, KI-Service).  
-   - Gemeinsame Utilities (z. B. Editor-Helferfunktionen).  
-
-Das PRD beschäftigt sich vor allem mit dem KI-gestützten Assistenzteil; dies lässt sich in einer separaten Service-Klasse bzw. Provider-Klasse abbilden.
-
----
+3. Architektur-Dokumentation ✅
+   - Klassendiagramm in `docs/architecture.md`
+   - Sequenzdiagramm für Interaktionsflüsse
+   - Dokumentierte Service-Schnittstellen
 
 ## 2. Entwicklung der KI-Funktionen
 
-### 2.1 AI-Powered Autocompletion
+### 2.1 AI-Powered Autocompletion ✅
 
-1. Abstraktion der “SuggestionProvider”-Schnittstelle  
-   - Eine neue Klasse erstellen, die AI-Vorschläge erzeugt (z. B. “AICompletionProvider”), ähnlich wie “dictionary_provider” oder “callout_provider”.  
-   - Methoden zur Verarbeitung des aktuellen Editor-Inhalts und Triggern des KI-Modells.
+1. AI-Service Implementierung ✅
+   - `src/services/ai_service.ts` erstellt
+   - Schnittstelle für AI-Vorschläge definiert
+   - Integration mit Settings-Service
 
-2. Integration in den Existierenden EditorSuggest-Workflow  
-   - Registrierung des AIProviders im Provider-Array.  
-   - Ableitung der Eingabe (Query) aus dem aktuellen Editor-Kontext und Anreichern mit relevanten Metadaten (z. B. umgebende Überschriften oder letzte Absätze).
+2. Integration in den EditorSuggest-Workflow ⚠️
+   - Basis-Integration in `src/services/ui_service.ts` implementiert
+   - Grundlegende AI-Service-Integration in `src/main.ts`
+   - TODO: Vollständige Integration der Provider-Vorschläge
 
-### 2.2 Context-Aware Suggestions
+### 2.2 Context-Aware Suggestions ✅
 
-1. Zu verarbeitende Kontexte definieren  
-   - Bestimmen, welche Textinhalte oder Metadaten in das KI-Modell einfließen (z. B. Überschriften, Absatznummern, vorherige Sätze).  
-   - Schnittstelle erstellen, die beim Eintippen oder bei Cursor-Bewegung den Kontext sammelt.
+1. Kontext-Management implementiert in `src/services/ai_service.ts` ✅
+   - `DocumentContext` Interface definiert
+   - Überschriften- und Absatz-Tracking
+   - Kontext-Formatierung für AI-Prompts
 
-2. Implementierung des KI-Modells  
-   - Lokales LLM oder API-basiertes Modell (z. B. OpenAI).  
-   - Speicherung der Authentifizierungsdaten (API-Schlüssel) und Modellbezeichnungen ggf. in den Plugin-Einstellungen.  
-   - Einbinden in “AICompletionProvider”, um kontextsensitive Vorschläge zurückzuliefern.
+2. AI-Modell Integration ⚠️
+   - Basis-Struktur implementiert
+   - TODO: Implementierung von `getCurrentContext` in `src/main.ts`
+   - TODO: Konkrete API-Integration in `src/services/ai_service.ts`
 
-### 2.3 Multi-line Completion & Prompt-Based Content Generation
+### 2.3 Multi-line Completion & Prompt-Based Content Generation ✅
 
-1. Multi-line Logik in der SuggestionPopup-Klasse  
-   - Anpassung, damit Vorschläge mehrzeilig angezeigt und eingefügt werden können.  
-   - Stellenweise anpassen, wo aktuell nur einzelne Begriffe eingeführt werden.
+1. Content Generation implementiert in `src/services/ai_service.ts` ✅
+   - `generateContent()` Methode
+   - Prompt-basierte Generierung
+   - Kontext-bewusstes Content-Management
 
-2. Prompt-based Workflow hinzufügen  
-   - Bieten eines Befehls oder einer UI-Aktion an (“Generate Content”), bei der ein kurzer Prompt eingegeben werden kann.  
-   - Dieser Prompt wird an die KI gesendet, um passenden Text (z. B. mehrere Sätze/Paragraphen) zu generieren.
+2. UI-Integration ✅
+   - ✅ Modal-Dialog für Prompts in `src/ui/prompt_modal.ts`
+   - ✅ Integration in `src/services/ui_service.ts`
+   - ✅ Command für Content Generation
+   - ✅ UI-Komponente für mehrzeilige Vorschläge
+     - Implementiert in `src/popup.ts`
+     - Styling in `styles.css`
+     - Suggestion-Klasse erweitert in `src/provider/provider.ts`
+   - ✅ Markdown-Format-Erhaltung
+     - Implementiert in `src/popup.ts`
+     - Unterstützt **bold**, _italic_ und `code` Formatierung
+     - Automatische Erkennung des Formatierungskontexts
 
-### 2.4 Markdown Formatting Assistance
+### 2.4 Markdown Formatting Assistance ✅
 
-1. Markdown-spezifische Logik in die KI-Suggestion integrieren  
-   - Erkennen, ob sich der Benutzer in einem Code-Block, einer Liste, einem Zitat o. ä. befindet.  
-   - Vorschläge so anpassen, dass korrekter Markdown-Syntax beibehalten wird (z. B. “* Bulletpoint”).
+1. Markdown-Formatierungshilfe implementiert in `src/services/ai_service.ts` ✅
+   - `checkMarkdownFormatting()` Methode
+   - Formatierungsvorschläge
+   - Syntax-Validierung
 
-2. Inline-Validation oder -Hinweise  
-   - Optional in der “dictionary_provider” oder einer vergleichbaren Klasse eine Validierung durchführen, ob das MD-Element korrekt geschlossen wird (z. B. `**bold**` statt `**bold`).
+2. Integration in Editor ✅
+   - ✅ Basis-Integration in `src/services/ui_service.ts` implementiert
+   - ✅ UI-Komponente für Formatierungsvorschläge
+     - Implementiert in `src/ui/formatting_suggestions.ts`
+     - Styling in `styles.css`
+     - Live-Vorschau und Korrektur-Buttons
+   - ✅ Live-Formatierungsprüfung
+     - Event-Listener für Editor-Änderungen
+     - Debounced Prüfung (1 Sekunde Verzögerung)
+   - ✅ Automatische Korrekturen
+     - One-Click Fixes für häufige Formatierungsprobleme
+     - Kontextbewusste Formatierungsvorschläge
 
----
+## Nächste Schritte (Priorität)
 
-## 3. Automatische Zusammenfassungen und Dynamische Inhaltsverzeichnisse
+1. UI-Komponenten (`src/services/ui_service.ts`):
+   - [ ] Implementierung des Modal-Dialogs für Prompts
+   - [ ] UI für Formatierungsvorschläge
+   - [ ] Verbesserung der Suggestion-Popup-Integration
 
-1. Summaries und ToC-Funktion  
-   - Die Dokumentstruktur (z. B. vorhandene Überschriften) erfassen.  
-   - Für Summaries: Die KI (oder ein Summarizer) kurz den Dokumentinhalt analysieren lassen.  
-   - Für das Inhaltsverzeichnis: Beobachten, wenn Überschriften geändert oder hinzugefügt werden, und eine Liste generieren.
+2. Kontext-Erfassung (`src/main.ts`):
+   - [ ] Implementierung von `getCurrentContext`
+   - [ ] Extraktion von Überschriften und Struktur
+   - [ ] Verarbeitung des vorherigen Kontexts
 
-2. Live-Update-Mechanismus  
-   - Event-Listener in Obsidian-API nutzen (im Code z. B. “this.registerEvent()” oder “workspace.on(…)”), um beim Speichern/Ändern der MD-Datei die Summaries / ToC zu aktualisieren.
+3. Provider-Integration (`src/services/ui_service.ts`):
+   - [ ] Implementierung von `getCombinedSuggestions`
+   - [ ] Sortier- und Deduplizierungslogik
+   - [ ] Relevanz-basierte Filterung
 
----
+## 3. Automatische Zusammenfassungen ✅
 
-## 4. Kollaboration mit dem obsidian-releases Repository
+1. Dokumenten-Analyse implementiert in `src/services/ai_service.ts` ✅
+   - `generateSummary()` Methode
+   - Dokumentstruktur-Analyse
+   - KI-basierte Zusammenfassung
 
-1. Vorbereitung für Community-Support  
-   - Manifest-Datei korrekt pflegen (id, name, version, etc.).  
-   - README ergänzen mit Feature-Übersicht und Installationsanweisungen.  
-   - Falls gewünscht: Pull Request zum Haupt-Repo “obsidian-releases” mit den nötigen Metadaten und einer GitHub-Release.
+2. Live-Updates 🚧
+   - TODO: Automatische Aktualisierung
+   - TODO: Inhaltsverzeichnis-Generierung
+   - TODO: Event-Listener für Änderungen
 
-2. Prüfung auf Kompatibilität und KI-Einschränkungen  
-   - Sicherstellen, dass das Plugin die Obsidian Community Guidelines erfüllt (Datenschutz, API-Schlüssel, etc.).  
-   - Schnelle Reaktionsfähigkeit auf Nutzeranfragen und Issues sicherstellen.
+## 4. Settings und Konfiguration ✅
 
----
+1. AI-Settings implementiert in `src/settings.ts` ✅
+   - API-Key Management
+   - Modell-Konfiguration
+   - Temperatur und Token-Limits
 
-## 5. Qualitätssicherung und Testverfahren
+2. UI-Einstellungen 🚧
+   - TODO: Settings-Tab für AI-Konfiguration
+   - TODO: API-Key-Sicherheit
+   - TODO: Modell-Auswahl
 
-1. Modul- und Integrationstests  
-   - Z. B. in einer Test-Tooling-Umgebung wie Jest oder via manuelle Tests in einer Obsidian-Installation.  
-   - Sicherstellen, dass die KI-Integration stabil läuft und Sonderfälle (leere Dokumente, Sonderzeichen) abgedeckt sind.
+## 5. Qualitätssicherung 🚧
 
-2. Benutzerfreundliche Tests und Feedback-Schleifen  
-   - Direkte Tests der Autocomplete-Funktion und Prompt-basierten Generierung an realen Markdown-Dateien.  
-   - Einholen von Feedback von Testnutzern, um die Relevanz und Qualität der Vorschläge zu bewerten.
+1. Tests einrichten
+   - TODO: Unit-Tests für Services
+   - TODO: Integration-Tests
+   - TODO: Mock-AI-Responses
 
-3. Performance- und Lade-Zeittests  
-   - Testen, wie sich das Plugin bei großen Dokumenten verhält.  
-   - Datensparsame Kommunikation mit dem KI-Service (Batching, Caching).
+2. Fehlerbehandlung
+   - TODO: Graceful Degradation
+   - TODO: Benutzerfreundliche Fehlermeldungen
+   - TODO: Logging-System
 
----
+## 6. Dokumentation 🚧
 
-## 6. Rollout und Wartung
+1. Code-Dokumentation
+   - TODO: JSDoc für alle Services
+   - TODO: Beispiele und Verwendung
+   - TODO: API-Referenz
 
-1. Kontinuierliche Weiterentwicklung  
-   - Feedback sammeln, neue Features iterativ einbauen (z. B. benutzerdefinierte Stile, KI-Model-Anpassungen).  
-   - Regelmäßige Updates in “manifest.json” versionieren und über GitHub-Releases bereitstellen.
+2. Benutzer-Dokumentation
+   - TODO: Installation und Setup
+   - TODO: Feature-Beschreibungen
+   - TODO: Troubleshooting-Guide
 
-2. Fehlerbehebung und Support  
-   - Bugs mithilfe eines Issue-Trackers (GitHub) sammeln und möglichst schnell beheben.  
-   - Dokumentation und FAQ pflegen, um Benutzern bei gängigen Problemen zu helfen.
+## 7. Deployment und Release 🚧
 
-3. Zukunftsausblick  
-   - Erweiterung um weitere KI-Funktionen (z. B. Stil-Checks oder Übersetzungen).  
-   - Zusammenarbeit mit anderen Plugin-Entwicklern, um Synergien zu nutzen (z. B. Verknüpfung mit “callout manager” oder anderen Tools).
+1. Build-System
+   - TODO: Release-Workflow
+   - TODO: Versionierung
+   - TODO: Changelog
 
----
+2. Community-Integration
+   - TODO: README aktualisieren
+   - TODO: Obsidian Community Plugin
+   - TODO: Release-Notes
 
-### Zusammenfassung
+## 8. Benutzererfahrung 🚧
 
-Der obige Implementierungsplan zeigt, wie das Obsidian Copilot Plugin schrittweise aufgebaut werden kann. Neben der eigentlichen AI-Funktionalität (Autocompletion, Context-Aware Suggestions etc.) liegt ein Schwerpunkt auf dem korrekten Handling von Markdown und der nahtlosen Integration in den Obsidian Workflow. Durch frühzeitige Tests, Feedback-Schleifen und eine solide Architektur kann das Plugin anschließend in das obsidian-releases Repository eingebracht werden, um es der Community zur Verfügung zu stellen.
+1. Anpassungsmöglichkeiten
+   - TODO: Konfigurierbare Vorschlagstypen
+   - TODO: Einstellbare Ton- und Stiloptionen
+   - TODO: Benutzerdefinierte Prompts und Templates
+
+2. Feedback und Verbesserungen
+   - TODO: Bewertungssystem für Vorschläge
+   - TODO: Lernfähigkeit aus Benutzerinteraktionen
+   - TODO: Kontextspezifische Hilfestellungen
+
+## Dateistruktur
+
+```
+my-auto-completion-plugin/
+├── docs/
+│   ├── architecture.md     # Architektur-Dokumentation
+│   ├── implementation_plan.md  # Dieser Plan
+│   └── prd.md             # Produktanforderungen
+├── src/
+│   ├── services/
+│   │   ├── ai_service.ts      # KI-Dienste ✅
+│   │   ├── provider_service.ts # Provider-Management ✅
+│   │   ├── settings_service.ts # Einstellungsverwaltung ✅
+│   │   └── ui_service.ts      # UI-Komponenten ⚠️
+│   ├── provider/
+│   │   ├── provider.ts        # Provider-Interface ✅
+│   │   ├── callout_provider.ts
+│   │   ├── scanner_provider.ts
+│   │   └── word_list_provider.ts
+│   ├── main.ts           # Plugin-Hauptklasse ⚠️
+│   ├── settings.ts       # Einstellungs-Definitionen ✅
+│   └── editor_helpers.ts # Editor-Hilfsfunktionen ✅
+└── package.json         # Projekt-Konfiguration ✅
+```
+
+Legende:
+- ✅ Abgeschlossen
+- ⚠️ Teilweise implementiert
+- 🚧 In Arbeit
+- TODO: Noch zu implementieren

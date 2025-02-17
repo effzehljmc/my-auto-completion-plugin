@@ -6,18 +6,23 @@ import { SelectionDirection } from './popup';
 import { SettingsService } from './services/settings_service';
 import { ProviderService } from './services/provider_service';
 import { UIService } from './services/ui_service';
+import { AIService, DocumentContext } from './services/ai_service';
 
 export default class MyAutoCompletionPlugin extends Plugin {
     private settingsService: SettingsService;
     private providerService: ProviderService;
     private uiService: UIService;
+    private aiService: AIService;
 
     async onload() {
         this.settingsService = new SettingsService(this);
         await this.settingsService.loadSettings();
 
+        this.aiService = new AIService(this.app, this.settingsService);
+        await this.aiService.initialize();
+
         this.providerService = new ProviderService(this.app, this.settingsService);
-        this.uiService = new UIService(this.app, this.settingsService);
+        this.uiService = new UIService(this.app, this.settingsService, this.aiService);
 
         // Register the suggestion popup
         this.registerEditorSuggest(this.uiService.getSuggestionPopup());
@@ -67,6 +72,20 @@ export default class MyAutoCompletionPlugin extends Plugin {
     }
 
     private setupCommands() {
+        this.addCommand({
+            id: 'generate-content',
+            name: 'Generate content from prompt',
+            editorCallback: async (editor) => {
+                const context = this.getCurrentContext(editor);
+                const content = await this.uiService.showPromptModal(context);
+                
+                if (content) {
+                    editor.replaceSelection(content);
+                    new Notice("Content generated successfully");
+                }
+            }
+        });
+
         this.addCommand({
             id: 'scan-vault',
             name: 'Scan vault',
@@ -127,5 +146,15 @@ export default class MyAutoCompletionPlugin extends Plugin {
 
     private async onFileOpened(file: TFile) {
         await this.providerService.scanCurrentFile(file);
+    }
+
+    private getCurrentContext(editor: any): DocumentContext {
+        // TODO: Implement proper context extraction
+        return {
+            previousParagraphs: [],
+            documentStructure: {
+                headings: []
+            }
+        };
     }
 }
