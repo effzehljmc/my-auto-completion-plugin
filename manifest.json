@@ -1,0 +1,10 @@
+{
+    "id": "my-auto-completion-plugin",
+    "name": "Autocomplete",
+    "version": "1.0.0",
+    "minAppVersion": "1.0.0",
+    "description": "This plugin provides advanced auto-completion functionality for standard writing.",
+    "author": "Lukas Chagas",
+    "authorUrl": "https://github.com/effzehljmc",
+    "isDesktopOnly": true
+}
