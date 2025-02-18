@@ -77,16 +77,20 @@ export class UIService {
             this.snippetManager
         );
         this.periodInserter = new PeriodInserter();
-        this.formattingSuggestions = new FormattingSuggestions(this.app, this.aiService);
 
-        // Register event listener for editor changes with debouncing
-        this.app.workspace.on('editor-change', 
-            debounce((editor) => {
-                if (editor) {
-                    this.formattingSuggestions.checkFormatting(editor);
-                }
-            }, 1000, true)
-        );
+        // Only create formatting suggestions if enabled
+        if (this.settingsService.getSettings().formattingSuggestionsEnabled) {
+            this.formattingSuggestions = new FormattingSuggestions(this.app, this.aiService);
+
+            // Register event listener for editor changes with debouncing
+            this.app.workspace.on('editor-change', 
+                debounce((editor) => {
+                    if (editor) {
+                        this.formattingSuggestions.checkFormatting(editor);
+                    }
+                }, 1000, true)
+            );
+        }
     }
 
     /**
@@ -336,6 +340,9 @@ export class UIService {
     }
 
     getFormattingSuggestions(): FormattingSuggestions {
+        if (!this.formattingSuggestions) {
+            return null;
+        }
         return this.formattingSuggestions;
     }
 

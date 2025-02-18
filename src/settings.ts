@@ -55,7 +55,7 @@ export const DEFAULT_SETTINGS: MyAutoCompletionSettings = {
     aiModel: 'gpt-3.5-turbo-0125',
     aiTemperature: 0.7,
     aiMaxTokens: 500,
-    formattingSuggestionsEnabled: true,
+    formattingSuggestionsEnabled: false,
     defaultModel: 'gpt-3.5-turbo'
 }
 

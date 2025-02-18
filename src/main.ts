@@ -18,12 +18,14 @@ export default class MyAutoCompletionPlugin extends Plugin {
     async onload() {
         this.settingsService = new SettingsService(this);
         await this.settingsService.loadSettings();
+        await this.settingsService.updateSetting('formattingSuggestionsEnabled', false);
 
         this.aiService = new AIService(this.app, this.settingsService);
         await this.aiService.initialize();
 
         this.providerService = new ProviderService(this.app, this.settingsService);
-        this.uiService = new UIService(this.app, this.settingsService, this.aiService);
+        await this.providerService.loadAllProviders();
+        this.uiService = new UIService(this.app, this.settingsService, this.aiService, this.providerService);
 
         // Register the chat view type
         this.app.workspace.onLayoutReady(() => {
@@ -59,7 +61,10 @@ export default class MyAutoCompletionPlugin extends Plugin {
         this.registerEvent(
             this.app.workspace.on('editor-change', (editor) => {
                 if (editor && this.settingsService.getSettings().formattingSuggestionsEnabled) {
-                    this.uiService.getFormattingSuggestions().checkFormatting(editor);
+                    const formattingSuggestions = this.uiService.getFormattingSuggestions();
+                    if (formattingSuggestions) {
+                        formattingSuggestions.checkFormatting(editor);
+                    }
                 }
             })
         );

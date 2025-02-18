@@ -14,6 +14,10 @@ class WordListSuggestionProvider extends DictionaryProvider {
         return settings.wordListProviderEnabled;
     }
 
+    async loadSuggestions(vault: Vault, settings: MyAutoCompletionSettings): Promise<void> {
+        await this.loadFromFiles(vault, settings);
+    }
+
     async loadFromFiles(vault: Vault, settings: MyAutoCompletionSettings): Promise<number> {
         this.wordMap.clear();
 
@@ -32,7 +36,7 @@ class WordListSuggestionProvider extends DictionaryProvider {
 
             // Each line is a word
             const lines = data.split(NEW_LINE_REGEX);
-            for (let line of lines) {
+            for (const line of lines) {
                 if (line === "" || line.length < settings.minWordLength)
                     continue;
 
@@ -48,7 +52,7 @@ class WordListSuggestionProvider extends DictionaryProvider {
 
         let count = 0;
         // Sort by length
-        for (let entry of this.wordMap.entries()) {
+        for (const entry of this.wordMap.entries()) {
             const newValue = SuggestionBlacklist.filterText(entry[1].sort((a, b) => a.length - b.length));
             this.wordMap.set(entry[0], newValue);
             count += newValue.length;
