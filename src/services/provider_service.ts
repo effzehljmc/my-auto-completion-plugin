@@ -1,61 +1,104 @@
-import { App, TFile } from 'obsidian';
+import { App, TFile, Vault } from 'obsidian';
 import { SuggestionProvider } from '../provider/provider';
 import { Callout } from '../provider/callout_provider';
 import { FileScanner } from '../provider/scanner_provider';
-import { WordList } from '../provider/word_list_provider';
+import { WordList, WordListSuggestionProvider } from '../provider/word_list_provider';
 import { SettingsService } from './settings_service';
+import MyAutoCompletionPlugin from '../main';
+import { MyAutoCompletionSettings } from '../settings';
+
+interface LoadableSuggestionProvider extends SuggestionProvider {
+    loadSuggestions?: (
+        vault: Vault,
+        pluginOrSettings: MyAutoCompletionPlugin | MyAutoCompletionSettings
+    ) => Promise<void>;
+}
 
 export class ProviderService {
-    private providers: SuggestionProvider[] = [];
+    private providers: LoadableSuggestionProvider[] = [];
     private app: App;
     private settingsService: SettingsService;
+    private plugin: MyAutoCompletionPlugin;
 
-    constructor(app: App, settingsService: SettingsService) {
+    constructor(app: App, settingsService: SettingsService, plugin: MyAutoCompletionPlugin) {
         this.app = app;
         this.settingsService = settingsService;
+        this.plugin = plugin;
         this.initializeProviders();
     }
 
     private initializeProviders() {
-        const settings = this.settingsService.getSettings();
-        
-        if (settings.calloutProviderEnabled) {
-            this.providers.push(Callout);
-        }
-        if (settings.fileScannerProviderEnabled) {
-            this.providers.push(FileScanner);
-        }
-        if (settings.wordListProviderEnabled) {
-            this.providers.push(WordList);
+        try {
+            const settings = this.settingsService.getSettings();
+            
+            // Clear existing providers
+            this.providers = [];
+            
+            // Add enabled providers
+            if (settings.calloutProviderEnabled) {
+                this.providers.push(Callout);
+            }
+            if (settings.fileScannerProviderEnabled) {
+                this.providers.push(FileScanner);
+            }
+            if (settings.wordListProviderEnabled) {
+                this.providers.push(WordList);
+            }
+
+            // Register workspace events for provider updates
+            this.app.workspace.onLayoutReady(() => {
+                this.loadAllProviders();
+            });
+        } catch (error) {
+            console.error('Failed to initialize providers:', error);
+            // Initialize with default providers
+            this.providers = [FileScanner];
         }
     }
 
-    getProviders(): SuggestionProvider[] {
+    getProviders(): LoadableSuggestionProvider[] {
         return this.providers;
     }
 
     async reloadProviders() {
-        this.providers = [];
-        this.initializeProviders();
+        await this.initializeProviders();
         await this.loadAllProviders();
     }
 
     async loadAllProviders() {
         for (const provider of this.providers) {
             try {
-                // @ts-ignore - Some providers may have loadSuggestions method
-                await provider.loadSuggestions?.(this.app.vault, this.app);
+                if (provider.loadSuggestions) {
+                    const settings = this.settingsService.getSettings();
+                    await provider.loadSuggestions(
+                        this.app.vault,
+                        provider instanceof WordListSuggestionProvider 
+                            ? settings 
+                            : this.plugin
+                    );
+                }
             } catch (error) {
-                console.error(`Failed to load provider: ${provider}`, error);
+                console.error(`Failed to load provider: ${provider.constructor.name}`, error);
             }
         }
     }
 
     async scanCurrentFile(file: TFile) {
-        const settings = this.settingsService.getSettings();
-        if (!file || !settings.fileScannerScanCurrent || !settings.fileScannerProviderEnabled) {
-            return;
+        try {
+            const settings = this.settingsService.getSettings();
+            if (!file || !settings.fileScannerScanCurrent || !settings.fileScannerProviderEnabled) {
+                return;
+            }
+            await FileScanner.scanFile(settings, file, true);
+        } catch (error) {
+            console.error('Failed to scan current file:', error);
         }
-        await FileScanner.scanFile(settings, file, true);
+    }
+
+    /**
+     * Clean up resources when the service is unloaded
+     */
+    unload() {
+        this.providers = [];
     }
 } 

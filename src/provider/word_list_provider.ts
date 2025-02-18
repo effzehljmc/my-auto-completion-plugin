@@ -6,7 +6,7 @@ import { SuggestionBlacklist } from "./blacklist";
 const WORD_LISTS_FOLDER_PATH = "wordLists";
 const NEW_LINE_REGEX = /\r?\n/;
 
-class WordListSuggestionProvider extends DictionaryProvider {
+export class WordListSuggestionProvider extends DictionaryProvider {
 
     readonly wordMap: Map<string, string[]> = new Map<string, string[]>();
 
@@ -92,4 +92,5 @@ class WordListSuggestionProvider extends DictionaryProvider {
     }
 }
 
+// Export a singleton instance
 export const WordList = new WordListSuggestionProvider();

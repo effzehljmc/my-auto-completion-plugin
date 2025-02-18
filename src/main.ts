@@ -1,4 +1,4 @@
-import { Plugin, TFile, Notice } from 'obsidian';
+import { Plugin, TFile, Notice, Editor } from 'obsidian';
 import { EditorView, ViewUpdate } from '@codemirror/view';
 import MyAutoCompletionSettingsTab from './settings_tab';
 import { markerStateField } from './marker_state_field';
@@ -23,13 +23,20 @@ export default class MyAutoCompletionPlugin extends Plugin {
         this.aiService = new AIService(this.app, this.settingsService);
         await this.aiService.initialize();
 
-        this.providerService = new ProviderService(this.app, this.settingsService);
+        this.providerService = new ProviderService(this.app, this.settingsService, this);
         await this.providerService.loadAllProviders();
         this.uiService = new UIService(this.app, this.settingsService, this.aiService, this.providerService);
 
         // Register the chat view type
         this.app.workspace.onLayoutReady(() => {
-            this.registerView(CHAT_VIEW_TYPE, (leaf) => new ChatPanel(leaf, this.aiService, this.settingsService));
+            this.registerView(CHAT_VIEW_TYPE, (leaf) => new ChatPanel(
+                leaf,
+                this.aiService,
+                this.settingsService,
+                this.providerService,
+                this.uiService,
+                this
+            ));
         });
 
         // Add ribbon icon for toggling the chat panel
@@ -107,7 +114,9 @@ export default class MyAutoCompletionPlugin extends Plugin {
 
         this.setupCommands();
 
-        if ((this.app.vault as any).config?.legacyEditor) {
+        const activeLeaf = this.app.workspace.activeLeaf;
+        const isLegacyMode = activeLeaf?.getViewState().state?.mode === 'source';
+        if (isLegacyMode) {
             console.log("My Auto Completion: Without Live Preview enabled, most features will not work properly!");
         }
     }
@@ -201,7 +210,7 @@ export default class MyAutoCompletionPlugin extends Plugin {
         await this.providerService.scanCurrentFile(file);
     }
 
-    private getCurrentContext(editor: any): DocumentContext {
+    private getCurrentContext(editor: Editor): DocumentContext {
         const currentFile = this.app.workspace.getActiveFile();
         const content = editor.getValue();
         const cursor = editor.getCursor();
@@ -212,7 +221,7 @@ export default class MyAutoCompletionPlugin extends Plugin {
         
         // Extract headings
         const headings: string[] = [];
-        let currentHeading: string = '';
+        let currentHeading = '';
         
         // Get previous paragraphs (up to 3)
         const previousParagraphs: string[] = [];

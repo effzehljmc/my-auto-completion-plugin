@@ -11,16 +11,23 @@
  * @file UI Service implementation for the auto-completion plugin
  */
 
-import { App, debounce } from 'obsidian';
+import { App, Editor } from 'obsidian';
+import { SettingsService } from './settings_service';
+import { AIService, DocumentContext } from './ai_service';
+import { ProviderService } from './provider_service';
 import SuggestionPopup from '../popup';
 import SnippetManager from '../snippet_manager';
-import { SettingsService } from './settings_service';
-import { AIService, AICompletionResponse, DocumentContext } from './ai_service';
-import { ProviderService } from './provider_service';
 import PeriodInserter from '../period_inserter';
-import { AIPromptModal } from '../ui/prompt_modal';
 import { FormattingSuggestions } from '../ui/formatting_suggestions';
-import { Suggestion, SuggestionContext } from '../provider/provider';
+import { Suggestion } from '../provider/provider';
+import { AIPromptModal } from '../ui/prompt_modal';
+import { SuggestionContext } from '../provider/provider';
+
+// Define missing interfaces
+interface AICompletionResponse {
+    text: string;
+    confidence: number;
+}
 
 // Extend AICompletionResponse to include metadata
 interface EnhancedAICompletionResponse extends AICompletionResponse {
@@ -42,18 +49,19 @@ export class UIService {
     private suggestionPopup: SuggestionPopup;
     private snippetManager: SnippetManager;
     private periodInserter: PeriodInserter;
-    private formattingSuggestions: FormattingSuggestions;
+    private formattingSuggestions: FormattingSuggestions | null = null;
     private app: App;
     private settingsService: SettingsService;
     private aiService: AIService;
     private providerService: ProviderService;
     private suggestionCache: Map<string, CachedSuggestions>;
     private readonly CACHE_DURATION = 30000; // 30 seconds
-    private readonly MAX_CACHE_SIZE = 100;
+    private readonly MAX_CACHE_SIZE = 50; // Reduced from 100 to be more memory efficient
+    private readonly MAX_SUGGESTIONS_PER_CACHE = 20; // Limit suggestions per cache entry
 
     constructor(
-        app: App, 
-        settingsService: SettingsService, 
+        app: App,
+        settingsService: SettingsService,
         aiService: AIService,
         providerService: ProviderService
     ) {
@@ -62,35 +70,35 @@ export class UIService {
         this.aiService = aiService;
         this.providerService = providerService;
         this.suggestionCache = new Map();
-        this.initializeComponents();
+        this.snippetManager = new SnippetManager();
+        this.periodInserter = new PeriodInserter();
+        this.suggestionPopup = new SuggestionPopup(app, settingsService.getSettings(), this.snippetManager);
+
+        // Initialize UI components when workspace is ready
+        this.app.workspace.onLayoutReady(() => {
+            if (settingsService.getSettings().formattingSuggestionsEnabled) {
+                this.formattingSuggestions = new FormattingSuggestions(app, aiService);
+            }
+            this.registerWorkspaceEvents();
+        });
     }
 
-    /**
-     * Initialize all UI components and set up event listeners
-     * @private
-     */
-    private initializeComponents() {
-        this.snippetManager = new SnippetManager();
-        this.suggestionPopup = new SuggestionPopup(
-            this.app,
-            this.settingsService.getSettings(),
-            this.snippetManager
-        );
-        this.periodInserter = new PeriodInserter();
+    private registerWorkspaceEvents() {
+        // Clear cache when switching files
+        this.app.workspace.on('file-open', () => {
+            this.suggestionCache.clear();
+        });
 
-        // Only create formatting suggestions if enabled
-        if (this.settingsService.getSettings().formattingSuggestionsEnabled) {
-            this.formattingSuggestions = new FormattingSuggestions(this.app, this.aiService);
+        // Clear cache when editor changes
+        this.app.workspace.on('editor-change', () => {
+            this.cleanCache();
+        });
 
-            // Register event listener for editor changes with debouncing
-            this.app.workspace.on('editor-change', 
-                debounce((editor) => {
-                    if (editor) {
-                        this.formattingSuggestions.checkFormatting(editor);
-                    }
-                }, 1000, true)
-            );
-        }
+        // Handle active leaf changes
+        this.app.workspace.on('active-leaf-change', () => {
+            this.suggestionPopup.close();
+            this.cleanCache();
+        });
     }
 
     /**
@@ -111,7 +119,7 @@ export class UIService {
     }
 
     /**
-     * Get combined suggestions from both AI and providers
+     * Get combined suggestions with improved memory management
      * Implements caching, sorting, and relevance scoring
      * 
      * @param currentText Current text to get suggestions for
@@ -126,41 +134,53 @@ export class UIService {
         suggestionContext: SuggestionContext
     ): Promise<EnhancedAICompletionResponse[]> {
         try {
-            // Check cache first
-            const cacheKey = `${currentText}-${context.currentHeading || ''}`;
+            const cacheKey = this.generateCacheKey(currentText, context);
             const cached = this.getCachedSuggestions(cacheKey);
-            if (cached) {
-                return cached;
-            }
+            if (cached) return cached;
 
-            // Get suggestions from both sources
             const [aiSuggestions, providerSuggestions] = await Promise.all([
                 this.aiService.getCompletionSuggestions(currentText, context),
                 this.getProviderSuggestions(suggestionContext)
             ]);
 
-            // Convert provider suggestions to AI format
             const convertedProviderSuggestions = this.convertProviderSuggestions(providerSuggestions);
-
-            // Add metadata to AI suggestions
-            const enhancedAiSuggestions = aiSuggestions.map(s => ({
-                ...s,
-                metadata: { source: 'ai' as const }
-            }));
-
-            // Combine and sort suggestions
+            const enhancedAiSuggestions = this.enhanceAISuggestions(aiSuggestions);
             const combinedSuggestions = this.combineSuggestions(
                 enhancedAiSuggestions,
                 convertedProviderSuggestions
             );
 
-            // Cache the results
-            this.cacheSuggestions(cacheKey, combinedSuggestions);
+            // Limit number of suggestions before caching
+            const limitedSuggestions = combinedSuggestions.slice(0, this.MAX_SUGGESTIONS_PER_CACHE);
+            this.cacheSuggestions(cacheKey, limitedSuggestions);
 
-            return combinedSuggestions;
+            return limitedSuggestions;
         } catch (error) {
             console.error('Error getting combined suggestions:', error);
             throw new Error('Failed to get suggestions: ' + error.message);
+        }
+    }
+
+    private generateCacheKey(currentText: string, context: DocumentContext): string {
+        return `${currentText}-${context.currentHeading || ''}-${context.documentStructure?.title || ''}`;
+    }
+
+    private enhanceAISuggestions(suggestions: AICompletionResponse[]): EnhancedAICompletionResponse[] {
+        return suggestions.map(s => ({
+            ...s,
+            metadata: { source: 'ai' as const }
+        }));
+    }
+
+    /**
+     * Clean old entries from cache
+     */
+    private cleanCache() {
+        const now = Date.now();
+        for (const [key, value] of this.suggestionCache.entries()) {
+            if (now - value.timestamp > this.CACHE_DURATION) {
+                this.suggestionCache.delete(key);
+            }
         }
     }
 
@@ -301,14 +321,17 @@ export class UIService {
      * @param suggestion Selected suggestion
      * @param editor Editor instance
      */
-    async handleSuggestionSelection(suggestion: EnhancedAICompletionResponse, editor: any) {
+    async handleSuggestionSelection(
+        suggestion: EnhancedAICompletionResponse, 
+        editor: Editor
+    ) {
         try {
             // Apply the suggestion
             this.suggestionPopup.applySelectedItem();
             this.suggestionPopup.postApplySelectedItem(editor);
 
             // Check and update formatting suggestions
-            await this.formattingSuggestions.checkFormatting(editor);
+            await this.formattingSuggestions?.checkFormatting(editor);
         } catch (error) {
             console.error('Error handling suggestion selection:', error);
             // Let the error propagate to be handled by the caller
@@ -339,10 +362,7 @@ export class UIService {
         return this.periodInserter;
     }
 
-    getFormattingSuggestions(): FormattingSuggestions {
-        if (!this.formattingSuggestions) {
-            return null;
-        }
+    getFormattingSuggestions(): FormattingSuggestions | null {
         return this.formattingSuggestions;
     }
 
@@ -350,8 +370,24 @@ export class UIService {
      * Clean up resources when the service is unloaded
      */
     unload() {
-        this.snippetManager.onunload();
-        this.formattingSuggestions.remove();
-        this.suggestionCache.clear();
+        try {
+            // Remove workspace event listeners
+            this.app.workspace.off('file-open', this.cleanCache);
+            this.app.workspace.off('editor-change', this.cleanCache);
+            this.app.workspace.off('active-leaf-change', this.cleanCache);
+
+            // Clean up UI components
+            if (this.formattingSuggestions) {
+                this.formattingSuggestions.remove();
+            }
+            this.snippetManager?.clearAllPlaceholders();
+            this.periodInserter?.cancelInsertPeriod();
+            this.suggestionPopup?.close();
+            
+            // Clear cache
+            this.suggestionCache?.clear();
+        } catch (error) {
+            console.error('Error during UI service unload:', error);
+        }
     }
 } 

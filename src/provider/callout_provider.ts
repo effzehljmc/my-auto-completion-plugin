@@ -1,7 +1,7 @@
 import { getApi } from "obsidian-callout-manager";
 import { Suggestion, SuggestionContext, SuggestionProvider } from "./provider";
 import { CalloutProviderSource, MyAutoCompletionSettings, intoMyAutoCompletionPath } from "../settings";
-import { Notice, Plugin, Vault } from "obsidian";
+import { Notice, Vault } from "obsidian";
 import { SuggestionBlacklist } from "./blacklist";
 import MyAutoCompletionPlugin from "../main";
 
@@ -78,21 +78,40 @@ class CalloutSuggestionProvider implements SuggestionProvider {
     }
 
     async loadSuggestions(vault: Vault, plugin: MyAutoCompletionPlugin) {
-        const source = plugin.settings.calloutProviderSource;
-
-        // Callout Manager
-        const calloutManagerApi = await getApi(plugin as any);
-        if (calloutManagerApi != null) {
-            calloutManagerApi.off('change', this.boundLoadSuggestionsUsingCalloutManager);
-            if (source === CalloutProviderSource.CALLOUT_MANAGER) {
-                calloutManagerApi.on('change', this.boundLoadSuggestionsUsingCalloutManager);
-                await this.loadSuggestionsUsingCalloutManager();
+        try {
+            if (!plugin) {
+                // If plugin is not available, use default provider
+                await this.loadSuggestionsUsingDefaultProvider(vault);
                 return;
             }
-        }
 
-        // Default suggestions
-        await this.loadSuggestionsUsingDefaultProvider(vault);
+            const settings = plugin.getSettings();
+            if (!settings) {
+                // If settings are not available, use default provider
+                await this.loadSuggestionsUsingDefaultProvider(vault);
+                return;
+            }
+
+            const source = settings.calloutProviderSource;
+
+            // Callout Manager
+            const calloutManagerApi = await getApi(plugin as any);
+            if (calloutManagerApi != null) {
+                calloutManagerApi.off('change', this.boundLoadSuggestionsUsingCalloutManager);
+                if (source === CalloutProviderSource.CALLOUT_MANAGER) {
+                    calloutManagerApi.on('change', this.boundLoadSuggestionsUsingCalloutManager);
+                    await this.loadSuggestionsUsingCalloutManager();
+                    return;
+                }
+            }
+
+            // Default suggestions
+            await this.loadSuggestionsUsingDefaultProvider(vault);
+        } catch (error) {
+            console.error('Failed to load callout suggestions:', error);
+            // Fallback to default suggestions
+            await this.loadSuggestionsUsingDefaultProvider(vault);
+        }
     }
 
     protected async loadSuggestionsUsingDefaultProvider(vault: Vault) {
