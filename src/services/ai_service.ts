@@ -28,6 +28,26 @@ export interface DocumentContext {
     };
 }
 
+export interface OpenAIChoice {
+    message?: {
+        content: string;
+    };
+    text?: string;
+    finish_reason: string;
+    logprobs: {
+        tokens: string[];
+        token_logprobs: number[];
+        top_logprobs: Record<string, number>[];
+    } | null;
+}
+
+export interface OpenAIResponse {
+    choices: OpenAIChoice[];
+    model: string;
+    object: string;
+    created: number;
+}
+
 export class AIService {
     private app: App;
     private settingsService: SettingsService;
@@ -166,7 +186,7 @@ export class AIService {
      * Make an API request to the AI service
      * Implements proper API communication with error handling
      */
-    private async makeAIRequest(request: AICompletionRequest): Promise<any> {
+    private async makeAIRequest(request: AICompletionRequest): Promise<OpenAIResponse> {
         const settings = this.settingsService.getSettings();
         const endpoint = `${this.BASE_URL}/chat/completions`;
 
@@ -214,12 +234,12 @@ export class AIService {
      * Parse the API response for completion suggestions
      * Implements proper response parsing with confidence scoring
      */
-    private parseCompletionResponse(response: any): AICompletionResponse[] {
+    private parseCompletionResponse(response: OpenAIResponse): AICompletionResponse[] {
         if (!response.choices || !response.choices.length) {
             return [];
         }
 
-        return response.choices.map((choice: any) => {
+        return response.choices.map((choice: OpenAIChoice) => {
             const text = choice.message?.content || '';
             // Calculate confidence based on response metadata
             const confidence = this.calculateConfidence(
@@ -241,7 +261,7 @@ export class AIService {
      */
     private calculateConfidence(
         finishReason: string,
-        logprobs: any,
+        logprobs: OpenAIChoice['logprobs'],
         text: string
     ): number {
         let confidence = 0.5; // Base confidence
@@ -298,17 +318,15 @@ export class AIService {
     /**
      * Parse the API response for content generation
      */
-    private parseContentResponse(response: any): string {
-        // TODO: Implement actual response parsing
-        return response.choices[0].text;
+    private parseContentResponse(response: OpenAIResponse): string {
+        return response.choices[0]?.message?.content || '';
     }
 
     /**
      * Parse the API response for formatting suggestions
      */
-    private parseFormattingSuggestions(response: any): string[] {
-        // TODO: Implement actual response parsing
-        return [
+    private parseFormattingSuggestions(response: OpenAIResponse): string[] {
+        return response.choices[0]?.message?.content?.split('\n').filter(Boolean) || [
             'Consider using a level-2 heading here',
             'Add a code block for this snippet'
         ];

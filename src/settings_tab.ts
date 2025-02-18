@@ -17,7 +17,7 @@ export default class MyAutoCompletionSettingsTab extends PluginSettingTab {
         this.plugin = plugin;
     }
 
-    display(): any {
+    display(): void {
         const { containerEl } = this;
 
         containerEl.empty();
