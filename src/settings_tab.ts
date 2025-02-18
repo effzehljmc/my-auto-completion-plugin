@@ -26,13 +26,14 @@ export default class MyAutoCompletionSettingsTab extends PluginSettingTab {
             .setName("Word character regex")
             .setDesc("A regular expression which matches a character of a word. Used by during completion to find the word to the left of the cursor and used by the file scanner to find valid words.")
             .addText(text => text
-                .setValue(this.plugin.settings.characterRegex)
+                .setValue(this.plugin.getSettings().characterRegex)
                 .onChange(async val => {
                     try {
                         //Check if regex is valid
                         new RegExp("[" + val + "]+").test("");
                         text.inputEl.removeClass("my-auto-completion-settings-error");
-                        this.plugin.settings.characterRegex = val;
+                        const settings = this.plugin.getSettings();
+                        settings.characterRegex = val;
                         await this.plugin.saveSettings();
                     } catch (e) {
                         text.inputEl.addClass("my-auto-completion-settings-error");
@@ -43,9 +44,10 @@ export default class MyAutoCompletionSettingsTab extends PluginSettingTab {
             .setName("Auto focus")
             .setDesc("Whether the popup is automatically focused once it opens.")
             .addToggle(toggle => toggle
-                .setValue(this.plugin.settings.autoFocus)
+                .setValue(this.plugin.getSettings().autoFocus)
                 .onChange(async val => {
-                    this.plugin.settings.autoFocus = val;
+                    const settings = this.plugin.getSettings();
+                    settings.autoFocus = val;
                     await this.plugin.saveSettings();
                 }));
 
@@ -53,9 +55,10 @@ export default class MyAutoCompletionSettingsTab extends PluginSettingTab {
             .setName("Auto trigger")
             .setDesc("Whether the popup opens automatically when typing.")
             .addToggle(toggle => toggle
-                .setValue(this.plugin.settings.autoTrigger)
+                .setValue(this.plugin.getSettings().autoTrigger)
                 .onChange(async val => {
-                    this.plugin.settings.autoTrigger = val;
+                    const settings = this.plugin.getSettings();
+                    settings.autoTrigger = val;
                     await this.plugin.saveSettings();
                 }));
 
@@ -66,12 +69,13 @@ export default class MyAutoCompletionSettingsTab extends PluginSettingTab {
             .addText(text => {
                 text.inputEl.type = "number";
                 text
-                    .setValue(this.plugin.settings.minWordLength + "")
+                    .setValue(this.plugin.getSettings().minWordLength + "")
                     .onChange(async val => {
                         if (!val || val.length < 1)
                             return;
 
-                        this.plugin.settings.minWordLength = parseInt(val);
+                        const settings = this.plugin.getSettings();
+                        settings.minWordLength = parseInt(val);
                         await this.plugin.saveSettings();
                     });
             });
@@ -82,12 +86,13 @@ export default class MyAutoCompletionSettingsTab extends PluginSettingTab {
             .addText(text => {
                 text.inputEl.type = "number";
                 text
-                    .setValue(this.plugin.settings.minWordTriggerLength + "")
+                    .setValue(this.plugin.getSettings().minWordTriggerLength + "")
                     .onChange(async val => {
                         if (!val || val.length < 1)
                             return;
 
-                        this.plugin.settings.minWordTriggerLength = parseInt(val);
+                        const settings = this.plugin.getSettings();
+                        settings.minWordTriggerLength = parseInt(val);
                         await this.plugin.saveSettings();
                     });
             });
@@ -100,9 +105,10 @@ export default class MyAutoCompletionSettingsTab extends PluginSettingTab {
                 .addOption(WordInsertionMode.IGNORE_CASE_REPLACE, WordInsertionMode.IGNORE_CASE_REPLACE)
                 .addOption(WordInsertionMode.IGNORE_CASE_APPEND, WordInsertionMode.IGNORE_CASE_APPEND)
                 .addOption(WordInsertionMode.MATCH_CASE_REPLACE, WordInsertionMode.MATCH_CASE_REPLACE)
-                .setValue(this.plugin.settings.wordInsertionMode)
+                .setValue(this.plugin.getSettings().wordInsertionMode)
                 .onChange(async val => {
-                    this.plugin.settings.wordInsertionMode = val as WordInsertionMode;
+                    const settings = this.plugin.getSettings();
+                    settings.wordInsertionMode = val as WordInsertionMode;
                     await this.plugin.saveSettings();
                 })
             );
@@ -111,9 +117,10 @@ export default class MyAutoCompletionSettingsTab extends PluginSettingTab {
             .setName("Ignore diacritics when filtering")
             .setDesc("When enabled, the query 'Hello' can suggest 'Hèllò', meaning diacritics will be ignored when filtering the suggestions. Only used by the file scanner and word list provider.")
             .addToggle(toggle => toggle
-                .setValue(this.plugin.settings.ignoreDiacriticsWhenFiltering)
+                .setValue(this.plugin.getSettings().ignoreDiacriticsWhenFiltering)
                 .onChange(async val => {
-                    this.plugin.settings.ignoreDiacriticsWhenFiltering = val;
+                    const settings = this.plugin.getSettings();
+                    settings.ignoreDiacriticsWhenFiltering = val;
                     await this.plugin.saveSettings();
                 }));
         
@@ -121,9 +128,10 @@ export default class MyAutoCompletionSettingsTab extends PluginSettingTab {
             .setName("Add space after completed word")
             .setDesc("When enabled, a space will be added after a word has been completed.")
             .addToggle(toggle => toggle
-                .setValue(this.plugin.settings.insertSpaceAfterComplete)
+                .setValue(this.plugin.getSettings().insertSpaceAfterComplete)
                 .onChange(async val => {
-                    this.plugin.settings.insertSpaceAfterComplete = val;
+                    const settings = this.plugin.getSettings();
+                    settings.insertSpaceAfterComplete = val;
                     await this.plugin.saveSettings();
                 }));
         
@@ -131,11 +139,82 @@ export default class MyAutoCompletionSettingsTab extends PluginSettingTab {
             .setName("Insert period after double space")
             .setDesc("When enabled, a period is added after a completed word if a space is added after an automatic space, via the option above.")
             .addToggle(toggle => toggle
-                .setValue(this.plugin.settings.insertPeriodAfterSpaces)
+                .setValue(this.plugin.getSettings().insertPeriodAfterSpaces)
                 .onChange(async val => {
-                    this.plugin.settings.insertPeriodAfterSpaces = val;
+                    const settings = this.plugin.getSettings();
+                    settings.insertPeriodAfterSpaces = val;
                     await this.plugin.saveSettings();
                 }));
+
+        new Setting(containerEl)
+            .setName("Formatting Suggestions")
+            .setHeading();
+
+        this.createEnabledSetting(
+            "formattingSuggestionsEnabled",
+            "Enable AI-powered formatting suggestions while typing",
+            containerEl
+        );
+
+        new Setting(containerEl)
+            .setName("AI Settings")
+            .setHeading();
+
+        new Setting(containerEl)
+            .setName("AI API Key")
+            .setDesc("Your API key for AI services (required for formatting suggestions)")
+            .addText(text => text
+                .setPlaceholder("Enter your API key")
+                .setValue(this.plugin.getSettings().aiApiKey)
+                .onChange(async (value) => {
+                    const settings = this.plugin.getSettings();
+                    settings.aiApiKey = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName("AI Model")
+            .setDesc("The AI model to use for suggestions")
+            .addDropdown(dropdown => dropdown
+                .addOption("gpt-3.5-turbo", "GPT-3.5 Turbo")
+                .addOption("gpt-4", "GPT-4")
+                .addOption("gpt-4-turbo-preview", "GPT-4 Turbo")
+                .addOption("gpt-4-0125-preview", "GPT-4 Turbo Preview")
+                .addOption("gpt-3.5-turbo-0125", "GPT-3.5 Turbo Latest")
+                .addOption("o3-mini", "O3-Mini")
+                .setValue(this.plugin.getSettings().aiModel)
+                .onChange(async (value) => {
+                    const settings = this.plugin.getSettings();
+                    settings.aiModel = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName("AI Temperature")
+            .setDesc("Controls randomness in AI responses (0.0 - 1.0)")
+            .addSlider(slider => slider
+                .setLimits(0, 1, 0.1)
+                .setValue(this.plugin.getSettings().aiTemperature)
+                .setDynamicTooltip()
+                .onChange(async (value) => {
+                    const settings = this.plugin.getSettings();
+                    settings.aiTemperature = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName("Max Tokens")
+            .setDesc("Maximum length of AI responses")
+            .addText(text => {
+                text.inputEl.type = "number";
+                text
+                    .setValue(String(this.plugin.getSettings().aiMaxTokens))
+                    .onChange(async (value) => {
+                        const settings = this.plugin.getSettings();
+                        settings.aiMaxTokens = Number(value);
+                        await this.plugin.saveSettings();
+                    });
+            });
 
         new Setting(containerEl)
             .setName("File scanner provider")
@@ -151,7 +230,7 @@ export default class MyAutoCompletionSettingsTab extends PluginSettingTab {
                             .setButtonText("Scan")
                             .setCta(),
                         async () => {
-                            await FileScanner.scanFiles(this.plugin.settings, this.plugin.app.vault.getMarkdownFiles());
+                            await FileScanner.scanFiles(this.plugin.getSettings(), this.plugin.app.vault.getMarkdownFiles());
                         },
                     ).open();
                 }))
@@ -177,9 +256,10 @@ export default class MyAutoCompletionSettingsTab extends PluginSettingTab {
             .setName("Scan active file")
             .setDesc("If this setting is enabled, the currently opened file will be scanned to find new words.")
             .addToggle(toggle => toggle
-                .setValue(this.plugin.settings.fileScannerScanCurrent)
+                .setValue(this.plugin.getSettings().fileScannerScanCurrent)
                 .onChange(async val => {
-                    this.plugin.settings.fileScannerScanCurrent = val;
+                    const settings = this.plugin.getSettings();
+                    settings.fileScannerScanCurrent = val;
                     await this.plugin.saveSettings();
                 }));
 
@@ -284,14 +364,15 @@ export default class MyAutoCompletionSettingsTab extends PluginSettingTab {
                 component.addOption("Default", CalloutProviderSource.DEFAULT)
                     .setValue(CalloutProviderSource.DEFAULT) // Default option.
                     .onChange(async (value) => {
-                        this.plugin.settings.calloutProviderSource = value as CalloutProviderSource;
+                        const settings = this.plugin.getSettings();
+                        settings.calloutProviderSource = value as CalloutProviderSource;
                         await this.plugin.saveSettings();
                     });
 
                 if (isCalloutManagerInstalled()) {
                     component.addOption("Callout Manager", CalloutProviderSource.CALLOUT_MANAGER);
-                    if (this.plugin.settings.calloutProviderSource === CalloutProviderSource.CALLOUT_MANAGER) {
-                        component.setValue(this.plugin.settings.calloutProviderSource);
+                    if (this.plugin.getSettings().calloutProviderSource === CalloutProviderSource.CALLOUT_MANAGER) {
+                        component.setValue(this.plugin.getSettings().calloutProviderSource);
                     }
                 }
             })
@@ -302,7 +383,7 @@ export default class MyAutoCompletionSettingsTab extends PluginSettingTab {
             return;
 
         this.isReloadingWords = true;
-        const count = await WordList.loadFromFiles(this.app.vault, this.plugin.settings);
+        const count = await WordList.loadFromFiles(this.app.vault, this.plugin.getSettings());
         this.isReloadingWords = false;
 
         new Notice(`Loaded ${count} words`);
@@ -313,11 +394,14 @@ export default class MyAutoCompletionSettingsTab extends PluginSettingTab {
             .setName("Enabled")
             .setDesc(desc)
             .addToggle(toggle => toggle
-                .setValue(this.plugin.settings[propertyName] as boolean)
-                //@ts-ignore
+                .setValue(this.plugin.getSettings()[propertyName] as boolean)
                 .onChange(async (val) => {
-                    // @ts-ignore
-                    this.plugin.settings[propertyName] = val;
+                    const settings = this.plugin.getSettings();
+                    const updatedSettings = {
+                        ...settings,
+                        [propertyName]: val
+                    };
+                    Object.assign(settings, updatedSettings);
                     await this.plugin.saveSettings();
                 }));
     }

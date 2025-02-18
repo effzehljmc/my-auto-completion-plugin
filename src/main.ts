@@ -32,6 +32,15 @@ export default class MyAutoCompletionPlugin extends Plugin {
             this.app.workspace.on('file-open', this.onFileOpened.bind(this))
         );
 
+        // Register editor change event for formatting suggestions
+        this.registerEvent(
+            this.app.workspace.on('editor-change', (editor) => {
+                if (editor && this.settingsService.getSettings().formattingSuggestionsEnabled) {
+                    this.uiService.getFormattingSuggestions().checkFormatting(editor);
+                }
+            })
+        );
+
         // Register editor extensions
         this.registerEditorExtension(markerStateField);
         this.registerEditorExtension(
@@ -165,11 +174,64 @@ export default class MyAutoCompletionPlugin extends Plugin {
     }
 
     private getCurrentContext(editor: any): DocumentContext {
-        // TODO: Implement proper context extraction
+        const currentFile = this.app.workspace.getActiveFile();
+        const content = editor.getValue();
+        const cursor = editor.getCursor();
+        const lines = content.split('\n');
+        
+        // Get document title
+        const title = currentFile ? currentFile.basename : '';
+        
+        // Extract headings
+        const headings: string[] = [];
+        let currentHeading: string = '';
+        
+        // Get previous paragraphs (up to 3)
+        const previousParagraphs: string[] = [];
+        let currentParagraph = '';
+        let paragraphCount = 0;
+        
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            
+            // Process headings
+            if (line.startsWith('#')) {
+                const heading = line.replace(/^#+\s*/, '').trim();
+                headings.push(heading);
+                
+                // Update current heading if we're before or at cursor
+                if (i <= cursor.line) {
+                    currentHeading = heading;
+                }
+            }
+            
+            // Process paragraphs before cursor
+            if (i < cursor.line) {
+                if (line.trim() === '') {
+                    if (currentParagraph) {
+                        previousParagraphs.unshift(currentParagraph.trim());
+                        currentParagraph = '';
+                        paragraphCount++;
+                        
+                        if (paragraphCount >= 3) break; // Limit to 3 previous paragraphs
+                    }
+                } else if (!line.startsWith('#')) { // Don't include headings in paragraphs
+                    currentParagraph = currentParagraph ? currentParagraph + ' ' + line : line;
+                }
+            }
+        }
+        
+        // Add the last paragraph if it exists
+        if (currentParagraph && paragraphCount < 3) {
+            previousParagraphs.unshift(currentParagraph.trim());
+        }
+        
         return {
-            previousParagraphs: [],
+            previousParagraphs,
+            currentHeading,
             documentStructure: {
-                headings: []
+                title,
+                headings
             }
         };
     }

@@ -1,4 +1,4 @@
-import { App, Modal, Setting, TextAreaComponent } from 'obsidian';
+import { App, Modal, Setting, TextAreaComponent, Notice, setIcon } from 'obsidian';
 import { AIService, DocumentContext } from '../services/ai_service';
 
 export class AIPromptModal extends Modal {
@@ -7,6 +7,7 @@ export class AIPromptModal extends Modal {
     private promptInput: TextAreaComponent;
     private aiService: AIService;
     private context: DocumentContext;
+    private isGenerating = false;
 
     constructor(
         app: App,
@@ -22,11 +23,15 @@ export class AIPromptModal extends Modal {
 
     onOpen() {
         const { contentEl } = this;
+        contentEl.empty();
         contentEl.addClass('ai-prompt-modal');
 
-        // Header
-        contentEl.createEl('h2', { text: 'AI Content Generation' });
-        
+        // Header with icon
+        const headerContainer = contentEl.createDiv('ai-prompt-header');
+        const iconContainer = headerContainer.createDiv('ai-prompt-icon');
+        setIcon(iconContainer, 'bot');
+        headerContainer.createEl('h2', { text: 'AI Content Generation' });
+
         // Prompt input
         new Setting(contentEl)
             .setName('Your prompt')
@@ -40,6 +45,18 @@ export class AIPromptModal extends Modal {
                     });
                 text.inputEl.addClass('ai-prompt-input');
                 text.inputEl.rows = 4;
+
+                // Add keyboard shortcuts
+                text.inputEl.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                        e.preventDefault();
+                        this.generate();
+                    }
+                    if (e.key === 'Escape') {
+                        e.preventDefault();
+                        this.close();
+                    }
+                });
             });
 
         // Context display
@@ -53,6 +70,10 @@ export class AIPromptModal extends Modal {
                 });
         }
 
+        // Keyboard shortcuts info
+        const shortcutsInfo = contentEl.createDiv('ai-prompt-shortcuts');
+        shortcutsInfo.createSpan({ text: '⌘/Ctrl + Enter to generate • Esc to cancel' });
+
         // Buttons
         const buttonContainer = contentEl.createDiv('ai-prompt-buttons');
         
@@ -61,29 +82,7 @@ export class AIPromptModal extends Modal {
             text: 'Generate',
             cls: 'mod-cta'
         });
-        generateButton.addEventListener('click', async () => {
-            if (!this.result) return;
-            
-            generateButton.setAttr('disabled', 'true');
-            generateButton.setText('Generating...');
-            
-            try {
-                const content = await this.aiService.generateContent(
-                    this.result,
-                    this.context
-                );
-                this.onSubmit(content);
-                this.close();
-            } catch (error) {
-                console.error('Generation failed:', error);
-                // Show error in UI
-                const errorDiv = contentEl.createDiv('ai-prompt-error');
-                errorDiv.setText('Generation failed: ' + error.message);
-            } finally {
-                generateButton.removeAttribute('disabled');
-                generateButton.setText('Generate');
-            }
-        });
+        generateButton.addEventListener('click', () => this.generate());
 
         // Cancel button
         const cancelButton = buttonContainer.createEl('button', {
@@ -92,39 +91,49 @@ export class AIPromptModal extends Modal {
         cancelButton.addEventListener('click', () => {
             this.close();
         });
+
+        // Focus input
+        this.promptInput.inputEl.focus();
+    }
+
+    private async generate() {
+        if (!this.result || this.isGenerating) return;
+
+        this.isGenerating = true;
+        const generateButton = this.contentEl.querySelector('button.mod-cta') as HTMLButtonElement;
+        if (generateButton) {
+            generateButton.setAttr('disabled', 'true');
+            generateButton.setText('Generating...');
+            setIcon(generateButton, 'loader-2');
+            generateButton.addClass('loading');
+        }
+        
+        try {
+            const content = await this.aiService.generateContent(
+                this.result,
+                this.context
+            );
+            this.onSubmit(content);
+            new Notice('Content generated successfully');
+            this.close();
+        } catch (error) {
+            console.error('Generation failed:', error);
+            // Show error in UI
+            const errorDiv = this.contentEl.createDiv('ai-prompt-error');
+            setIcon(errorDiv.createDiv('ai-prompt-error-icon'), 'alert-circle');
+            errorDiv.createDiv('ai-prompt-error-message').setText(error.message || 'Generation failed');
+        } finally {
+            this.isGenerating = false;
+            if (generateButton) {
+                generateButton.removeAttribute('disabled');
+                generateButton.setText('Generate');
+                generateButton.removeClass('loading');
+            }
+        }
     }
 
     onClose() {
         const { contentEl } = this;
         contentEl.empty();
     }
-}
-
-// Styles for the modal
-const styles = `
-.ai-prompt-modal {
-    padding: 20px;
-}
-
-.ai-prompt-input {
-    width: 100%;
-    min-height: 100px;
-    font-family: var(--font-monospace);
-    resize: vertical;
-}
-
-.ai-prompt-buttons {
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-    margin-top: 20px;
-}
-
-.ai-prompt-error {
-    color: var(--text-error);
-    margin-top: 10px;
-    padding: 10px;
-    border: 1px solid var(--background-modifier-error);
-    border-radius: 4px;
-}
-`; 
+} 

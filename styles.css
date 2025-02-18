@@ -125,7 +125,23 @@ span.my-auto-completion-suggestion-placeholder6 span {
 }
 
 .ai-prompt-modal {
-    padding: 20px;
+    padding: var(--size-4-3);
+}
+
+.ai-prompt-header {
+    display: flex;
+    align-items: center;
+    gap: var(--size-4-2);
+    margin-bottom: var(--size-4-3);
+}
+
+.ai-prompt-icon {
+    color: var(--text-accent);
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .ai-prompt-input {
@@ -133,63 +149,114 @@ span.my-auto-completion-suggestion-placeholder6 span {
     min-height: 100px;
     font-family: var(--font-monospace);
     resize: vertical;
+    background-color: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    padding: var(--size-4-2);
+}
+
+.ai-prompt-shortcuts {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    text-align: center;
+    margin: var(--size-4-2) 0;
 }
 
 .ai-prompt-buttons {
     display: flex;
     justify-content: flex-end;
-    gap: 10px;
-    margin-top: 20px;
+    gap: var(--size-4-2);
+    margin-top: var(--size-4-3);
 }
 
 .ai-prompt-error {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--size-4-2);
     color: var(--text-error);
-    margin-top: 10px;
-    padding: 10px;
+    margin-top: var(--size-4-2);
+    padding: var(--size-4-2);
     border: 1px solid var(--background-modifier-error);
-    border-radius: 4px;
+    border-radius: var(--radius-s);
+    background-color: var(--background-modifier-error-rgb);
+}
+
+.ai-prompt-error-icon {
+    color: var(--text-error);
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+}
+
+.ai-prompt-error-message {
+    flex: 1;
+    font-size: var(--font-ui-small);
+}
+
+button.loading {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--size-4-1);
+}
+
+button.loading svg {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .formatting-suggestions-container {
     position: absolute;
-    z-index: 1000;
+    z-index: var(--layer-popover);
     background-color: var(--background-primary);
     border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    box-shadow: 0 2px 8px var(--background-modifier-box-shadow);
+    border-radius: var(--radius-s);
+    box-shadow: var(--shadow-s);
     max-width: 300px;
     width: 100%;
+    font-size: var(--font-ui-small);
 }
 
 .formatting-suggestions-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 8px 12px;
+    padding: var(--size-4-2) var(--size-4-3);
     border-bottom: 1px solid var(--background-modifier-border);
     font-weight: var(--font-medium);
+    color: var(--text-normal);
 }
 
 .formatting-suggestions-close {
     cursor: pointer;
     opacity: 0.7;
     transition: opacity 0.2s ease;
+    color: var(--text-muted);
 }
 
 .formatting-suggestions-close:hover {
     opacity: 1;
+    color: var(--text-normal);
 }
 
 .formatting-suggestions-list {
     max-height: 200px;
     overflow-y: auto;
+    padding: var(--size-4-1) 0;
 }
 
 .formatting-suggestions-item {
     display: flex;
     align-items: center;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--background-modifier-border);
+    padding: var(--size-4-2) var(--size-4-3);
+    border-bottom: 1px solid var(--background-modifier-border-hover);
     cursor: pointer;
     transition: background-color 0.2s ease;
 }
@@ -203,10 +270,13 @@ span.my-auto-completion-suggestion-placeholder6 span {
 }
 
 .formatting-suggestions-fix {
-    margin-right: 8px;
+    margin-right: var(--size-4-2);
     color: var(--text-accent);
     opacity: 0.7;
     transition: opacity 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .formatting-suggestions-fix:hover {
@@ -215,6 +285,11 @@ span.my-auto-completion-suggestion-placeholder6 span {
 
 .formatting-suggestions-text {
     flex: 1;
-    font-size: 0.9em;
+    font-size: var(--font-ui-smaller);
     color: var(--text-muted);
+    line-height: var(--line-height-tight);
+}
+
+.formatting-suggestions-text:hover {
+    color: var(--text-normal);
 }

@@ -1,3 +1,8 @@
+/**
+ * AIService provides AI-powered functionality for the auto-completion plugin.
+ * Handles API communication, context processing, and response parsing.
+ */
+
 import { App, Editor, TFile } from 'obsidian';
 import { SettingsService } from './settings_service';
 
@@ -27,6 +32,10 @@ export class AIService {
     private app: App;
     private settingsService: SettingsService;
     private apiKey: string;
+    private readonly BASE_URL = 'https://api.openai.com/v1';
+    private readonly MAX_CONTEXT_LENGTH = 2048;
+    private readonly MIN_TOKENS = 50;
+    private readonly DEFAULT_TEMPERATURE = 0.7;
 
     constructor(app: App, settingsService: SettingsService) {
         this.app = app;
@@ -46,6 +55,7 @@ export class AIService {
 
     /**
      * Get real-time completion suggestions as user types
+     * Implements dynamic token and temperature adjustment based on context
      */
     async getCompletionSuggestions(
         currentText: string,
@@ -55,11 +65,19 @@ export class AIService {
 
         try {
             const settings = this.settingsService.getSettings();
+            const contextStr = this.formatContext(context);
+            
+            // Dynamically adjust tokens based on context length
+            const maxTokens = this.calculateMaxTokens(contextStr, currentText);
+            
+            // Adjust temperature based on context specificity
+            const temperature = this.calculateTemperature(context);
+
             const response = await this.makeAIRequest({
                 prompt: currentText,
-                context: this.formatContext(context),
-                maxTokens: 50,
-                temperature: settings.aiTemperature,
+                context: contextStr,
+                maxTokens,
+                temperature,
                 model: settings.aiModel
             });
 
@@ -146,29 +164,135 @@ export class AIService {
 
     /**
      * Make an API request to the AI service
+     * Implements proper API communication with error handling
      */
     private async makeAIRequest(request: AICompletionRequest): Promise<any> {
-        // TODO: Implement actual API call
-        // This is a placeholder that simulates an API response
-        return {
-            choices: [{
-                text: request.prompt.length > 20 
-                    ? request.prompt.substring(0, 20) + '...'
-                    : request.prompt,
-                confidence: 0.9
-            }]
-        };
+        const settings = this.settingsService.getSettings();
+        const endpoint = `${this.BASE_URL}/chat/completions`;
+
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.apiKey}`
+                },
+                body: JSON.stringify({
+                    model: request.model || settings.aiModel,
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'You are a helpful assistant providing context-aware suggestions.'
+                        },
+                        {
+                            role: 'user',
+                            content: request.context ? 
+                                `Context:\n${request.context}\n\nInput: ${request.prompt}` :
+                                request.prompt
+                        }
+                    ],
+                    max_tokens: request.maxTokens || settings.aiMaxTokens,
+                    temperature: request.temperature ?? settings.aiTemperature,
+                    n: 5, // Number of suggestions to generate
+                    stop: ['\n', '.', '?', '!'] // Stop sequences for completions
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(`API Error: ${error.message || response.statusText}`);
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('API request failed:', error);
+            throw error;
+        }
     }
 
     /**
      * Parse the API response for completion suggestions
+     * Implements proper response parsing with confidence scoring
      */
     private parseCompletionResponse(response: any): AICompletionResponse[] {
-        // TODO: Implement actual response parsing
-        return response.choices.map((choice: any) => ({
-            text: choice.text,
-            confidence: choice.confidence
-        }));
+        if (!response.choices || !response.choices.length) {
+            return [];
+        }
+
+        return response.choices.map((choice: any) => {
+            const text = choice.message?.content || '';
+            // Calculate confidence based on response metadata
+            const confidence = this.calculateConfidence(
+                choice.finish_reason,
+                choice.logprobs,
+                text
+            );
+
+            return {
+                text: text.trim(),
+                confidence
+            };
+        });
+    }
+
+    /**
+     * Calculate confidence score for a suggestion
+     * @private
+     */
+    private calculateConfidence(
+        finishReason: string,
+        logprobs: any,
+        text: string
+    ): number {
+        let confidence = 0.5; // Base confidence
+
+        // Adjust based on finish reason
+        if (finishReason === 'stop') {
+            confidence += 0.2;
+        }
+
+        // Adjust based on text length and quality
+        if (text.length > 3) {
+            confidence += 0.1;
+        }
+        if (text.match(/^[A-Z][a-z]/)) { // Proper capitalization
+            confidence += 0.1;
+        }
+
+        // Ensure confidence is between 0 and 1
+        return Math.min(Math.max(confidence, 0), 1);
+    }
+
+    /**
+     * Calculate maximum tokens based on context length
+     * @private
+     */
+    private calculateMaxTokens(context: string, currentText: string): number {
+        const totalLength = (context?.length || 0) + currentText.length;
+        const availableTokens = this.MAX_CONTEXT_LENGTH - Math.ceil(totalLength / 4);
+        return Math.max(this.MIN_TOKENS, Math.min(availableTokens, 200));
+    }
+
+    /**
+     * Calculate temperature based on context specificity
+     * @private
+     */
+    private calculateTemperature(context: DocumentContext): number {
+        let temperature = this.DEFAULT_TEMPERATURE;
+
+        // Reduce temperature if we have specific context
+        if (context.currentHeading) {
+            temperature -= 0.1;
+        }
+        if (context.documentStructure.title) {
+            temperature -= 0.1;
+        }
+        if (context.previousParagraphs.length > 0) {
+            temperature -= 0.1;
+        }
+
+        // Ensure temperature stays within reasonable bounds
+        return Math.min(Math.max(temperature, 0.1), 0.9);
     }
 
     /**

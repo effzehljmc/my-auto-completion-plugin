@@ -82,14 +82,34 @@ export class FormattingSuggestions {
 
         try {
             // Apply the formatting fix
-            // This is a placeholder - actual implementation would depend on the specific suggestion
             const cursor = this.editor.getCursor();
             const line = this.editor.getLine(cursor.line);
             
             // Example: If suggestion is about adding a heading
-            if (suggestion.includes('heading')) {
+            if (suggestion.toLowerCase().includes('heading')) {
                 if (!line.startsWith('#')) {
                     this.editor.replaceRange('# ', { line: cursor.line, ch: 0 });
+                }
+            }
+            // Example: If suggestion is about adding bold
+            else if (suggestion.toLowerCase().includes('bold')) {
+                const selection = this.editor.getSelection();
+                if (selection) {
+                    this.editor.replaceSelection(`**${selection}**`);
+                }
+            }
+            // Example: If suggestion is about adding italic
+            else if (suggestion.toLowerCase().includes('italic')) {
+                const selection = this.editor.getSelection();
+                if (selection) {
+                    this.editor.replaceSelection(`_${selection}_`);
+                }
+            }
+            // Example: If suggestion is about adding code block
+            else if (suggestion.toLowerCase().includes('code')) {
+                const selection = this.editor.getSelection();
+                if (selection) {
+                    this.editor.replaceSelection(`\`${selection}\``);
                 }
             }
             // Add more formatting fixes as needed
@@ -108,6 +128,8 @@ export class FormattingSuggestions {
         if (!this.editor) return;
 
         const editorElement = (this.editor as any).cm.dom.querySelector('.cm-content');
+        if (!editorElement) return;
+
         const rect = editorElement.getBoundingClientRect();
         
         this.container.style.display = 'block';
@@ -120,6 +142,9 @@ export class FormattingSuggestions {
     }
 
     public remove() {
+        if (this.debounceTimeout) {
+            clearTimeout(this.debounceTimeout);
+        }
         this.container.remove();
     }
 } 
