@@ -34,15 +34,16 @@ export default class SuggestionPopup extends EditorSuggest<Suggestion> {
     private readonly settings: MyAutoCompletionSettings;
     private readonly disableSnippets: boolean;
 
+    private isNavigating = false;
+
     constructor(app: App, settings: MyAutoCompletionSettings, snippetManager: SnippetManager) {
         super(app);
         this.disableSnippets = (app.vault as any).config?.legacyEditor;
         this.settings = settings;
         this.snippetManager = snippetManager;
-
-        //Remove default key registrations
-        const self = this as any;
-        self.scope.keys = [];
+        
+        // Instead of overriding the scope keys, we should use the proper methods
+        (this as any).suggestEl.addClass("my-auto-completion-suggestion-popup");
     }
 
     open() {
@@ -56,8 +57,14 @@ export default class SuggestionPopup extends EditorSuggest<Suggestion> {
     }
 
     close() {
+        console.log('SuggestionPopup.close', { 
+            wasVisible: this.isVisible(),
+            wasFocused: this.focused,
+            wasNavigating: this.isNavigating
+        });
         super.close();
         this.focused = false;
+        this.isNavigating = false;
     }
 
     getSuggestions(
@@ -91,10 +98,19 @@ export default class SuggestionPopup extends EditorSuggest<Suggestion> {
             seen.add(suggestion.displayName);
             return true;
         });
-        return suggestions.length === 0 ? null : suggestions.filter(s => !SuggestionBlacklist.has(s));
+
+        const filteredSuggestions = suggestions.filter(s => !SuggestionBlacklist.has(s));
+        
+        if (filteredSuggestions.length === 0) {
+            this.close();
+            return null;
+        }
+        
+        return filteredSuggestions;
     }
 
     onTrigger(cursor: EditorPosition, editor: Editor, file: TFile): EditorSuggestTriggerInfo | null {
+        console.log('SuggestionPopup.onTrigger', { cursor, hasFile: !!file });
         return this.internalOnTrigger(editor, cursor, !file);
     }
 
@@ -158,8 +174,10 @@ export default class SuggestionPopup extends EditorSuggest<Suggestion> {
     }
 
     selectSuggestion(value: Suggestion, evt: MouseEvent | KeyboardEvent): void {
+        if (!value) return;
+
         const replacement = value.replacement;
-        const start = typeof value !== "string" && value.overrideStart ? value.overrideStart : this.context.start;
+        const start = value.overrideStart ?? this.context.start;
         const endPos = value.overrideEnd ?? this.context.end;
 
         // Get the line content before and after the replacement
@@ -226,15 +244,67 @@ export default class SuggestionPopup extends EditorSuggest<Suggestion> {
     }
 
     selectNextItem(dir: SelectionDirection) {
-        if (!this.focused) {
-            this.focused = true;
-            dir = dir === SelectionDirection.PREVIOUS ? dir : SelectionDirection.NONE;
+        console.log('selectNextItem start', {
+            isVisible: this.isVisible(),
+            focused: this.focused,
+            direction: dir,
+            hasSuggestions: !!(this as any).suggestions,
+            isNavigating: this.isNavigating
+        });
+
+        if (!this.isVisible()) {
+            console.log('selectNextItem - not visible, returning');
+            return;
         }
 
         const self = this as any;
-        // HACK: The second parameter has to be an instance of KeyboardEvent to force scrolling the selected item into
-        // view
-        self.suggestions.setSelectedItem(self.suggestions.selectedItem + dir, new KeyboardEvent("keydown"));
+        if (!self.suggestions) {
+            console.log('selectNextItem - no suggestions, returning');
+            return;
+        }
+
+        // Set focus if not already focused
+        if (!this.focused) {
+            this.focused = true;
+            if (dir === SelectionDirection.NONE) {
+                self.suggestions.setSelectedItem(0);
+                return;
+            }
+        }
+
+        // Calculate next item index
+        const currentItem = self.suggestions.selectedItem ?? -1;
+        const totalItems = self.suggestions.values.length;
+        let nextItem = currentItem + dir;
+
+        // Handle wrapping
+        if (nextItem < 0) {
+            nextItem = totalItems - 1;
+        } else if (nextItem >= totalItems) {
+            nextItem = 0;
+        }
+
+        // Prevent closing when navigating
+        this.justClosed = false;
+        this.isNavigating = true;
+        
+        // Update selection with a synthetic keyboard event
+        const evt = new KeyboardEvent('keydown', {
+            key: dir === SelectionDirection.NEXT ? 'ArrowDown' : 'ArrowUp',
+            code: dir === SelectionDirection.NEXT ? 'ArrowDown' : 'ArrowUp',
+            bubbles: true,
+            cancelable: true
+        });
+        
+        self.suggestions.setSelectedItem(nextItem, evt);
+
+        console.log('selectNextItem end', {
+            previousItem: currentItem,
+            newItem: nextItem,
+            focused: this.focused,
+            isNavigating: this.isNavigating,
+            totalItems
+        });
     }
 
     getSelectedItem(): Suggestion {
@@ -244,7 +314,29 @@ export default class SuggestionPopup extends EditorSuggest<Suggestion> {
 
     applySelectedItem() {
         const self = this as any;
-        self.suggestions.useSelectedItem();
+        if (!self.suggestions || !self.suggestions.values || !self.suggestions.selectedItem) {
+            console.log('No suggestion selected or suggestions not initialized');
+            return;
+        }
+        
+        const selectedValue = self.suggestions.values[self.suggestions.selectedItem];
+        if (!selectedValue) {
+            console.log('No valid suggestion selected');
+            return;
+        }
+
+        // Create synthetic event
+        const evt = new KeyboardEvent('keydown', {
+            key: 'Enter',
+            code: 'Enter',
+            keyCode: 13,
+            which: 13,
+            bubbles: true,
+            cancelable: true
+        });
+
+        // Call selectSuggestion directly with the synthetic event
+        this.selectSuggestion(selectedValue, evt);
     }
 
     postApplySelectedItem(editor: Editor) {
@@ -258,7 +350,14 @@ export default class SuggestionPopup extends EditorSuggest<Suggestion> {
     }
 
     isVisible(): boolean {
-        return (this as any).isOpen;
+        const visible = (this as any).isOpen;
+        console.log('SuggestionPopup.isVisible', { 
+            visible,
+            focused: this.focused,
+            hasContext: !!this.context,
+            isNavigating: this.isNavigating
+        });
+        return visible;
     }
 
     isFocused(): boolean {
@@ -274,6 +373,62 @@ export default class SuggestionPopup extends EditorSuggest<Suggestion> {
             this.compiledCharacterRegex = new RegExp("[" + this.settings.characterRegex + "]", "u");
 
         return this.compiledCharacterRegex;
+    }
+
+    shouldClose(): boolean {
+        if (this.isNavigating) {
+            console.log('shouldClose: false - user is navigating');
+            return false;
+        }
+        return true;
+    }
+
+    // Add proper keyboard navigation support
+    onArrowUp(evt: KeyboardEvent): void {
+        if (!this.isVisible()) return;
+        
+        evt.preventDefault();
+        evt.stopPropagation();
+        this.isNavigating = true;
+        
+        const self = this as any;
+        const suggestions = self.suggestions;
+        if (!suggestions) return;
+
+        const currentIndex = suggestions.selectedItem ?? -1;
+        const totalItems = suggestions.values.length;
+        const nextIndex = (currentIndex - 1 + totalItems) % totalItems;
+        
+        suggestions.setSelectedItem(nextIndex);
+    }
+
+    onArrowDown(evt: KeyboardEvent): void {
+        if (!this.isVisible()) return;
+
+        evt.preventDefault();
+        evt.stopPropagation();
+        this.isNavigating = true;
+        
+        const self = this as any;
+        const suggestions = self.suggestions;
+        if (!suggestions) return;
+
+        const currentIndex = suggestions.selectedItem ?? -1;
+        const totalItems = suggestions.values.length;
+        const nextIndex = (currentIndex + 1) % totalItems;
+        
+        suggestions.setSelectedItem(nextIndex);
+    }
+
+    onEnter(evt: KeyboardEvent): void {
+        if (!this.isVisible()) return;
+
+        const selectedValue = this.getSelectedItem();
+        if (selectedValue) {
+            evt.preventDefault();
+            evt.stopPropagation();
+            this.selectSuggestion(selectedValue, evt);
+        }
     }
 
 }

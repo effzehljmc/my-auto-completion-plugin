@@ -37,6 +37,11 @@ export default class MyAutoCompletionPlugin extends Plugin {
         this.registerEditorExtension(
             EditorView.updateListener.of((update: ViewUpdate) => {
                 if (update.docChanged || update.selectionSet) {
+                    console.log('EditorView update', {
+                        docChanged: update.docChanged,
+                        selectionSet: update.selectionSet
+                    });
+
                     const snippetManager = this.uiService.getSnippetManager();
                     const suggestionPopup = this.uiService.getSuggestionPopup();
                     const periodInserter = this.uiService.getPeriodInserter();
@@ -44,7 +49,18 @@ export default class MyAutoCompletionPlugin extends Plugin {
                     // Handle cursor activity
                     snippetManager.clearAllPlaceholders();
                     periodInserter.cancelInsertPeriod();
-                    suggestionPopup.close();
+                    
+                    // Check if we're in the middle of navigating suggestions
+                    if (suggestionPopup.isVisible() && !suggestionPopup.shouldClose()) {
+                        console.log('Keeping suggestion popup open - navigation in progress');
+                        return;
+                    }
+
+                    // Only close if the popup allows it
+                    if (suggestionPopup.shouldClose()) {
+                        console.log('Closing suggestion popup due to editor update');
+                        suggestionPopup.close();
+                    }
                 }
             })
         );
@@ -106,11 +122,10 @@ export default class MyAutoCompletionPlugin extends Plugin {
 
         const suggestionPopup = this.uiService.getSuggestionPopup();
         
+        // Register commands without hotkeys for manual triggering
         this.addCommand({
             id: 'my-auto-completion-select-next-suggestion',
             name: 'Select next suggestion',
-            hotkeys: [{ key: "ArrowDown", modifiers: [] }],
-            repeatable: true,
             editorCallback: (_) => {
                 suggestionPopup.selectNextItem(SelectionDirection.NEXT);
             },
@@ -121,8 +136,6 @@ export default class MyAutoCompletionPlugin extends Plugin {
         this.addCommand({
             id: 'my-auto-completion-select-previous-suggestion',
             name: 'Select previous suggestion',
-            hotkeys: [{ key: "ArrowUp", modifiers: [] }],
-            repeatable: true,
             editorCallback: (_) => {
                 suggestionPopup.selectNextItem(SelectionDirection.PREVIOUS);
             },
@@ -133,14 +146,17 @@ export default class MyAutoCompletionPlugin extends Plugin {
         this.addCommand({
             id: 'my-auto-completion-insert-selected-suggestion',
             name: 'Insert selected suggestion',
-            hotkeys: [{ key: "Enter", modifiers: [] }],
             editorCallback: (editor) => {
+                if (!suggestionPopup.isVisible() || !suggestionPopup.getSelectedItem()) {
+                    return;
+                }
+
                 suggestionPopup.applySelectedItem();
                 suggestionPopup.postApplySelectedItem(editor);
                 this.uiService.getPeriodInserter().allowInsertPeriod();
             },
             // @ts-ignore
-            isVisible: () => suggestionPopup.isVisible(),
+            isVisible: () => suggestionPopup.isVisible() && suggestionPopup.getSelectedItem() != null,
         });
     }
 
