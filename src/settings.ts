@@ -31,7 +31,8 @@ export interface MyAutoCompletionSettings {
     aiModel: string,
     aiTemperature: number,
     aiMaxTokens: number,
-    formattingSuggestionsEnabled: boolean
+    formattingSuggestionsEnabled: boolean,
+    defaultModel: string
 }
 
 export const DEFAULT_SETTINGS: MyAutoCompletionSettings = {
@@ -54,7 +55,8 @@ export const DEFAULT_SETTINGS: MyAutoCompletionSettings = {
     aiModel: 'gpt-3.5-turbo-0125',
     aiTemperature: 0.7,
     aiMaxTokens: 500,
-    formattingSuggestionsEnabled: true
+    formattingSuggestionsEnabled: true,
+    defaultModel: 'gpt-3.5-turbo'
 }
 
 export function intoMyAutoCompletionPath(vault: Vault, ...path: string[]): string {

@@ -7,6 +7,7 @@ import { SettingsService } from './services/settings_service';
 import { ProviderService } from './services/provider_service';
 import { UIService } from './services/ui_service';
 import { AIService, DocumentContext } from './services/ai_service';
+import { ChatPanel, CHAT_VIEW_TYPE } from './ui/chat_panel';
 
 export default class MyAutoCompletionPlugin extends Plugin {
     private settingsService: SettingsService;
@@ -23,6 +24,28 @@ export default class MyAutoCompletionPlugin extends Plugin {
 
         this.providerService = new ProviderService(this.app, this.settingsService);
         this.uiService = new UIService(this.app, this.settingsService, this.aiService);
+
+        // Register the chat view type
+        this.app.workspace.onLayoutReady(() => {
+            this.registerView(CHAT_VIEW_TYPE, (leaf) => new ChatPanel(leaf, this.aiService, this.settingsService));
+        });
+
+        // Add ribbon icon for toggling the chat panel
+        this.addRibbonIcon('message-square', 'Toggle AI Chat', () => {
+            const { workspace } = this.app;
+            const existing = workspace.getLeavesOfType(CHAT_VIEW_TYPE);
+            
+            if (existing.length) {
+                workspace.detachLeavesOfType(CHAT_VIEW_TYPE);
+            } else {
+                const leaf = workspace.getLeaf('split');
+                leaf.setViewState({
+                    type: CHAT_VIEW_TYPE,
+                    active: true
+                });
+                workspace.revealLeaf(leaf);
+            }
+        });
 
         // Register the suggestion popup
         this.registerEditorSuggest(this.uiService.getSuggestionPopup());

@@ -176,12 +176,19 @@ export default class MyAutoCompletionSettingsTab extends PluginSettingTab {
             .setName("AI Model")
             .setDesc("The AI model to use for suggestions")
             .addDropdown(dropdown => dropdown
-                .addOption("gpt-3.5-turbo", "GPT-3.5 Turbo")
-                .addOption("gpt-4", "GPT-4")
+                // GPT-4 Models
+                .addOption("gpt-4-0125-preview", "GPT-4 Turbo (Latest)")
                 .addOption("gpt-4-turbo-preview", "GPT-4 Turbo")
-                .addOption("gpt-4-0125-preview", "GPT-4 Turbo Preview")
-                .addOption("gpt-3.5-turbo-0125", "GPT-3.5 Turbo Latest")
-                .addOption("o3-mini", "O3-Mini")
+                .addOption("gpt-4-1106-preview", "GPT-4 Turbo (Legacy)")
+                .addOption("gpt-4", "GPT-4")
+                .addOption("gpt-4o", "GPT-4o")
+                .addOption("gpt-4-0613", "GPT-4 (Legacy)")
+                // GPT-3.5 Models
+                .addOption("gpt-3.5-turbo-0125", "GPT-3.5 Turbo (Latest)")
+                .addOption("gpt-3.5-turbo", "GPT-3.5 Turbo")
+                .addOption("gpt-3.5-turbo-1106", "GPT-3.5 Turbo (Legacy)")
+                .addOption("gpt-3.5-turbo-0613", "GPT-3.5 Turbo (Legacy)")
+                // Remove o3-mini as it's not a valid OpenAI model
                 .setValue(this.plugin.getSettings().aiModel)
                 .onChange(async (value) => {
                     const settings = this.plugin.getSettings();
