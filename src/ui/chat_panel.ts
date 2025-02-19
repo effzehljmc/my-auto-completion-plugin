@@ -6,6 +6,7 @@ import { ChatAgentService } from '../services/chat_agent_service';
 import { ProviderService } from '../services/provider_service';
 import { UIService } from '../services/ui_service';
 import { DEFAULT_MODEL } from '../constants';
+import { MarkdownRenderer } from 'obsidian';
 
 export const CHAT_VIEW_TYPE = 'my-auto-completion-chat';
 
@@ -480,7 +481,22 @@ export class ChatPanel extends ItemView {
             
             const messageEl = this.chatContainer.createDiv(`chat-message ${message.role}`);
             const contentEl = messageEl.createDiv('message-content');
-            contentEl.createSpan({ text: message.content || '' });
+            
+            // Use Obsidian's markdown processor for assistant messages
+            if (message.role === 'assistant') {
+                // Create a temporary markdown container
+                const markdownContainer = contentEl.createDiv('markdown-content');
+                // Use Obsidian's markdown renderer
+                MarkdownRenderer.renderMarkdown(
+                    message.content || '',
+                    markdownContainer,
+                    '',
+                    this
+                );
+            } else {
+                // For user messages, keep as plain text
+                contentEl.createSpan({ text: message.content || '' });
+            }
             
             const timeEl = messageEl.createDiv('message-time');
             const timeStr = this.formatTime(message.timestamp);
@@ -739,6 +755,106 @@ export class ChatPanel extends ItemView {
             @keyframes spin {
                 0% { transform: rotate(0deg); }
                 100% { transform: rotate(360deg); }
+            }
+
+            .chat-message .markdown-content {
+                font-size: var(--font-text-size);
+                line-height: var(--line-height-normal);
+            }
+
+            .chat-message .markdown-content p {
+                margin: 0.5em 0;
+            }
+
+            .chat-message .markdown-content p:first-child {
+                margin-top: 0;
+            }
+
+            .chat-message .markdown-content p:last-child {
+                margin-bottom: 0;
+            }
+
+            .chat-message .markdown-content ul,
+            .chat-message .markdown-content ol {
+                margin: 0.5em 0;
+                padding-left: 1.5em;
+            }
+
+            .chat-message .markdown-content code {
+                background-color: var(--background-modifier-code);
+                padding: 0.1em 0.3em;
+                border-radius: 3px;
+                font-family: var(--font-monospace);
+                font-size: 0.9em;
+            }
+
+            .chat-message .markdown-content pre {
+                background-color: var(--background-modifier-code);
+                padding: 0.7em;
+                border-radius: 4px;
+                overflow-x: auto;
+                margin: 0.5em 0;
+            }
+
+            .chat-message .markdown-content pre code {
+                background-color: transparent;
+                padding: 0;
+                display: block;
+            }
+
+            .chat-message .markdown-content blockquote {
+                margin: 0.5em 0;
+                padding-left: 1em;
+                border-left: 3px solid var(--background-modifier-border);
+                color: var(--text-muted);
+            }
+
+            .chat-message .markdown-content h1,
+            .chat-message .markdown-content h2,
+            .chat-message .markdown-content h3,
+            .chat-message .markdown-content h4,
+            .chat-message .markdown-content h5,
+            .chat-message .markdown-content h6 {
+                margin: 0.5em 0;
+                line-height: var(--line-height-tight);
+            }
+
+            .chat-message .markdown-content a {
+                color: var(--text-accent);
+                text-decoration: none;
+            }
+
+            .chat-message .markdown-content a:hover {
+                text-decoration: underline;
+            }
+
+            .chat-message .markdown-content img {
+                max-width: 100%;
+                height: auto;
+                border-radius: 4px;
+            }
+
+            .chat-message .markdown-content hr {
+                border: none;
+                border-top: 1px solid var(--background-modifier-border);
+                margin: 1em 0;
+            }
+
+            .chat-message .markdown-content table {
+                border-collapse: collapse;
+                margin: 0.5em 0;
+                width: 100%;
+            }
+
+            .chat-message .markdown-content th,
+            .chat-message .markdown-content td {
+                border: 1px solid var(--background-modifier-border);
+                padding: 0.3em 0.6em;
+            }
+
+            .chat-message .markdown-content th {
+                background-color: var(--background-modifier-form-field);
+                font-weight: var(--font-bold);
             }
         `;
         document.head.appendChild(style);
