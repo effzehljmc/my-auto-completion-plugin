@@ -108,31 +108,6 @@ export class ChatPanel extends ItemView {
             setIcon(collapseButton, this.isSidebarCollapsed ? 'chevron-right' : 'chevron-left');
         });
 
-        // Create header with model selection
-        const headerEl = chatContentContainer.createDiv('chat-header');
-        
-        const modelContainer = headerEl.createDiv('model-container');
-        modelContainer.createSpan({ text: 'Model: ' });
-        
-        this.modelSelect = modelContainer.createEl('select', { cls: 'model-select' });
-        const models = ['gpt-3.5-turbo', 'gpt-4', 'gpt-4o'];
-        models.forEach(model => {
-            const option = this.modelSelect.createEl('option', {
-                text: model,
-                value: model
-            });
-            // Use the default model from settings, falling back to DEFAULT_MODEL constant
-            const defaultModel = this.settingsService.getSettings().defaultModel || DEFAULT_MODEL;
-            if (model === defaultModel) {
-                option.selected = true;
-            }
-        });
-
-        // Add change listener to update settings when model is changed
-        this.modelSelect.addEventListener('change', async () => {
-            await this.settingsService.updateSetting('defaultModel', this.modelSelect.value);
-        });
-
         // Create chat container
         this.chatContainer = chatContentContainer.createDiv('chat-container');
 
@@ -155,6 +130,26 @@ export class ChatPanel extends ItemView {
             cls: 'chat-send-button'
         });
         setIcon(sendButton, 'arrow-up');
+
+        // Create model selection container below input
+        const modelContainer = chatContentContainer.createDiv('model-container');
+        this.modelSelect = modelContainer.createEl('select', { cls: 'model-select' });
+        const models = ['gpt-3.5-turbo', 'gpt-4', 'gpt-4o'];
+        models.forEach(model => {
+            const option = this.modelSelect.createEl('option', {
+                text: model,
+                value: model
+            });
+            const defaultModel = this.settingsService.getSettings().defaultModel || DEFAULT_MODEL;
+            if (model === defaultModel) {
+                option.selected = true;
+            }
+        });
+
+        // Add change listener to update settings when model is changed
+        this.modelSelect.addEventListener('change', async () => {
+            await this.settingsService.updateSetting('defaultModel', this.modelSelect.value);
+        });
 
         // Add event listeners
         textarea.addEventListener('keydown', async (e: KeyboardEvent) => {
@@ -515,14 +510,16 @@ export class ChatPanel extends ItemView {
             .chat-main-container {
                 display: flex;
                 height: 100%;
+                background-color: var(--background-primary);
             }
             
             .chat-sidebar {
-                width: 200px;
+                width: 240px;
                 border-right: 1px solid var(--background-modifier-border);
                 display: flex;
                 flex-direction: column;
                 transition: width 0.2s ease-in-out;
+                background-color: var(--background-secondary);
             }
 
             .chat-sidebar.collapsed {
@@ -537,7 +534,7 @@ export class ChatPanel extends ItemView {
             .chat-sidebar-header {
                 display: flex;
                 align-items: center;
-                padding: 10px;
+                padding: 12px;
                 gap: 8px;
                 border-bottom: 1px solid var(--background-modifier-border);
             }
@@ -570,42 +567,45 @@ export class ChatPanel extends ItemView {
                 display: flex;
                 align-items: center;
                 justify-content: center;
+                font-size: 13px;
             }
             
             .chat-list {
                 flex: 1;
                 overflow-y: auto;
-                padding: 10px;
+                padding: 8px;
             }
             
             .chat-list-item {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                padding: 8px;
-                margin-bottom: 8px;
+                padding: 8px 12px;
+                margin-bottom: 4px;
                 border-radius: 4px;
                 cursor: pointer;
                 transition: background-color 0.2s;
+                font-size: 13px;
             }
             
             .chat-list-content {
                 flex: 1;
-                min-width: 0; /* Enable text truncation */
+                min-width: 0;
                 margin-right: 8px;
             }
             
             .chat-list-title {
                 font-weight: 500;
-                margin-bottom: 4px;
+                margin-bottom: 2px;
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
+                color: var(--text-normal);
             }
             
             .chat-list-date {
-                font-size: 0.8em;
-                opacity: 0.7;
+                font-size: 11px;
+                color: var(--text-muted);
             }
             
             .chat-list-delete {
@@ -630,7 +630,6 @@ export class ChatPanel extends ItemView {
                 opacity: 1;
             }
             
-            /* Ensure delete button doesn't affect the active state background */
             .chat-list-item.active {
                 background-color: var(--background-modifier-active);
             }
@@ -644,34 +643,40 @@ export class ChatPanel extends ItemView {
                 display: flex;
                 flex-direction: column;
                 height: 100%;
-            }
-            
-            .chat-header {
-                padding: 10px;
-                border-bottom: 1px solid var(--background-modifier-border);
+                background-color: var(--background-primary);
             }
             
             .model-container {
+                padding: 8px 16px;
+                border-top: 1px solid var(--background-modifier-border);
                 display: flex;
                 align-items: center;
-                gap: 8px;
+                justify-content: flex-end;
             }
             
             .model-select {
-                flex: 1;
+                width: auto;
+                padding: 4px 8px;
+                font-size: 12px;
+                border: 1px solid var(--background-modifier-border);
+                border-radius: 4px;
+                background-color: var(--background-primary);
+                color: var(--text-muted);
             }
             
             .chat-container {
                 flex: 1;
                 overflow-y: auto;
-                padding: 10px;
+                padding: 16px;
             }
             
             .chat-message {
-                margin-bottom: 10px;
-                padding: 8px;
-                border-radius: 6px;
+                margin-bottom: 16px;
+                padding: 12px;
+                border-radius: 8px;
                 max-width: 85%;
+                font-size: 14px;
+                line-height: 1.5;
             }
             
             .chat-message.user {
@@ -683,6 +688,7 @@ export class ChatPanel extends ItemView {
             .chat-message.assistant {
                 margin-right: auto;
                 background-color: var(--background-modifier-form-field);
+                color: var(--text-normal);
             }
             
             .message-content {
@@ -690,27 +696,34 @@ export class ChatPanel extends ItemView {
             }
             
             .message-time {
-                font-size: 0.8em;
-                opacity: 0.7;
+                font-size: 11px;
+                color: var(--text-muted);
                 margin-top: 4px;
             }
             
             .chat-input-container {
                 display: flex;
                 gap: 8px;
-                padding: 10px;
-                border-top: 1px solid var(--background-modifier-border);
+                padding: 16px;
+                background-color: var(--background-primary);
             }
             
             .chat-input {
                 flex: 1;
-                min-height: 38px;
+                min-height: 40px;
                 max-height: 200px;
                 resize: vertical;
-                padding: 8px;
-                border-radius: 4px;
+                padding: 8px 12px;
+                border-radius: 6px;
                 border: 1px solid var(--background-modifier-border);
-                background-color: var(--background-modifier-form-field);
+                background-color: var(--background-primary);
+                font-size: 14px;
+                line-height: 1.5;
+            }
+            
+            .chat-input:focus {
+                border-color: var(--interactive-accent);
+                outline: none;
             }
             
             .chat-send-button {
@@ -718,11 +731,12 @@ export class ChatPanel extends ItemView {
                 background-color: var(--interactive-accent);
                 color: var(--text-on-accent);
                 border: none;
-                border-radius: 4px;
+                border-radius: 6px;
                 cursor: pointer;
                 display: flex;
                 align-items: center;
                 justify-content: center;
+                transition: background-color 0.2s;
             }
             
             .chat-send-button:hover {
@@ -739,17 +753,17 @@ export class ChatPanel extends ItemView {
             }
 
             .loading-spinner {
-                width: 24px;
-                height: 24px;
-                border: 3px solid var(--background-modifier-border);
-                border-top: 3px solid var(--interactive-accent);
+                width: 20px;
+                height: 20px;
+                border: 2px solid var(--background-modifier-border);
+                border-top: 2px solid var(--interactive-accent);
                 border-radius: 50%;
                 animation: spin 1s linear infinite;
             }
 
             .loading-text {
                 color: var(--text-muted);
-                font-size: 14px;
+                font-size: 13px;
             }
 
             @keyframes spin {
@@ -757,9 +771,10 @@ export class ChatPanel extends ItemView {
                 100% { transform: rotate(360deg); }
             }
 
+            /* Markdown content styles */
             .chat-message .markdown-content {
-                font-size: var(--font-text-size);
-                line-height: var(--line-height-normal);
+                font-size: 14px;
+                line-height: 1.5;
             }
 
             .chat-message .markdown-content p {
@@ -816,7 +831,8 @@ export class ChatPanel extends ItemView {
             .chat-message .markdown-content h5,
             .chat-message .markdown-content h6 {
                 margin: 0.5em 0;
-                line-height: var(--line-height-tight);
+                line-height: 1.3;
+                font-weight: 600;
             }
 
             .chat-message .markdown-content a {
@@ -844,6 +860,7 @@ export class ChatPanel extends ItemView {
                 border-collapse: collapse;
                 margin: 0.5em 0;
                 width: 100%;
+                font-size: 0.9em;
             }
 
             .chat-message .markdown-content th,
@@ -854,7 +871,7 @@ export class ChatPanel extends ItemView {
 
             .chat-message .markdown-content th {
                 background-color: var(--background-modifier-form-field);
-                font-weight: var(--font-bold);
+                font-weight: 600;
             }
         `;
         document.head.appendChild(style);
