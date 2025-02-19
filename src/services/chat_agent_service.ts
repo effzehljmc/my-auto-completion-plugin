@@ -35,6 +35,11 @@ export class ChatAgentService {
     private readonly SYSTEM_PROMPT = SYSTEM_PROMPTS.CHAT_AGENT;
     private readonly DEFAULT_MODEL = DEFAULT_MODEL;
 
+    // Add public method to handle messages
+    async handleMessage(message: string, context?: DocumentContext): Promise<string> {
+        return this.processMessage(message, context);
+    }
+
     // Add logging utility
     private log(category: string, message: string, data?: any) {
         const now = Date.now();

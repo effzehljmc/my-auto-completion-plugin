@@ -5,6 +5,7 @@ import MyAutoCompletionPlugin from '../main';
 import { ChatAgentService } from '../services/chat_agent_service';
 import { ProviderService } from '../services/provider_service';
 import { UIService } from '../services/ui_service';
+import { DEFAULT_MODEL } from '../constants';
 
 export const CHAT_VIEW_TYPE = 'my-auto-completion-chat';
 
@@ -30,6 +31,9 @@ export class ChatPanel extends ItemView {
     private chatListContainer: HTMLElement;
     private plugin: MyAutoCompletionPlugin;
     private chatAgent: ChatAgentService;
+    private loadingIndicator: HTMLElement;
+    private sidebarContainer: HTMLElement;
+    private isSidebarCollapsed = false;
 
     constructor(
         leaf: WorkspaceLeaf,
@@ -71,20 +75,37 @@ export class ChatPanel extends ItemView {
         const mainContainer = contentEl.createDiv('chat-main-container');
         
         // Create sidebar for chat list
-        const sidebarContainer = mainContainer.createDiv('chat-sidebar');
+        this.sidebarContainer = mainContainer.createDiv('chat-sidebar');
+        
+        // Create sidebar header with collapse button
+        const sidebarHeader = this.sidebarContainer.createDiv('chat-sidebar-header');
         
         // Create new chat button
-        const newChatButton = sidebarContainer.createEl('button', {
+        const newChatButton = sidebarHeader.createEl('button', {
             cls: 'chat-new-button',
             attr: { title: 'New Chat' }
         });
         setIcon(newChatButton, 'plus');
+
+        // Create collapse button
+        const collapseButton = sidebarHeader.createEl('button', {
+            cls: 'chat-collapse-button',
+            attr: { title: 'Toggle Sidebar' }
+        });
+        setIcon(collapseButton, 'chevron-left');
         
         // Create chat list container
-        this.chatListContainer = sidebarContainer.createDiv('chat-list');
+        this.chatListContainer = this.sidebarContainer.createDiv('chat-list');
         
         // Create chat content container
         const chatContentContainer = mainContainer.createDiv('chat-content');
+
+        // Add collapse button click handler
+        collapseButton.addEventListener('click', () => {
+            this.isSidebarCollapsed = !this.isSidebarCollapsed;
+            this.sidebarContainer.classList.toggle('collapsed', this.isSidebarCollapsed);
+            setIcon(collapseButton, this.isSidebarCollapsed ? 'chevron-right' : 'chevron-left');
+        });
 
         // Create header with model selection
         const headerEl = chatContentContainer.createDiv('chat-header');
@@ -99,13 +120,28 @@ export class ChatPanel extends ItemView {
                 text: model,
                 value: model
             });
-            if (model === this.settingsService.getSettings().defaultModel) {
+            // Use the default model from settings, falling back to DEFAULT_MODEL constant
+            const defaultModel = this.settingsService.getSettings().defaultModel || DEFAULT_MODEL;
+            if (model === defaultModel) {
                 option.selected = true;
             }
         });
 
+        // Add change listener to update settings when model is changed
+        this.modelSelect.addEventListener('change', async () => {
+            await this.settingsService.updateSetting('defaultModel', this.modelSelect.value);
+        });
+
         // Create chat container
         this.chatContainer = chatContentContainer.createDiv('chat-container');
+
+        // Create loading indicator
+        this.loadingIndicator = chatContentContainer.createDiv('chat-loading-indicator');
+        this.loadingIndicator.innerHTML = `
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Generating response...</div>
+        `;
+        this.loadingIndicator.style.display = 'none';
 
         // Create input container
         this.inputContainer = chatContentContainer.createDiv('chat-input-container');
@@ -195,6 +231,9 @@ export class ChatPanel extends ItemView {
 
             // Update UI immediately with user message
             this.renderMessages();
+            
+            // Show loading indicator
+            this.loadingIndicator.style.display = 'flex';
 
             // Get the current file context
             const currentFile = this.app.workspace.getActiveFile();
@@ -209,7 +248,10 @@ export class ChatPanel extends ItemView {
             } : undefined;
 
             // Process message using ChatAgentService
-            const response = await this.chatAgent.processMessage(content, context);
+            const response = await this.chatAgent.handleMessage(content, context);
+            
+            // Hide loading indicator
+            this.loadingIndicator.style.display = 'none';
             
             if (response) {
                 // Add assistant message with the user-facing response
@@ -233,6 +275,9 @@ export class ChatPanel extends ItemView {
                 await this.saveChatHistory();
             }
         } catch (error) {
+            // Hide loading indicator on error
+            this.loadingIndicator.style.display = 'none';
+            
             console.error('Error sending message:', error);
             
             // Add error message to chat
@@ -439,10 +484,45 @@ export class ChatPanel extends ItemView {
                 border-right: 1px solid var(--background-modifier-border);
                 display: flex;
                 flex-direction: column;
+                transition: width 0.2s ease-in-out;
+            }
+
+            .chat-sidebar.collapsed {
+                width: 40px;
+            }
+
+            .chat-sidebar.collapsed .chat-list,
+            .chat-sidebar.collapsed .chat-new-button {
+                display: none;
+            }
+
+            .chat-sidebar-header {
+                display: flex;
+                align-items: center;
+                padding: 10px;
+                gap: 8px;
+                border-bottom: 1px solid var(--background-modifier-border);
+            }
+
+            .chat-collapse-button {
+                padding: 4px;
+                background: none;
+                border: none;
+                color: var(--text-muted);
+                cursor: pointer;
+                border-radius: 4px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .chat-collapse-button:hover {
+                color: var(--text-normal);
+                background-color: var(--background-modifier-hover);
             }
             
             .chat-new-button {
-                margin: 10px;
+                flex: 1;
                 padding: 8px;
                 background-color: var(--interactive-accent);
                 color: var(--text-on-accent);
@@ -452,10 +532,6 @@ export class ChatPanel extends ItemView {
                 display: flex;
                 align-items: center;
                 justify-content: center;
-            }
-            
-            .chat-new-button:hover {
-                background-color: var(--interactive-accent-hover);
             }
             
             .chat-list {
@@ -613,6 +689,34 @@ export class ChatPanel extends ItemView {
             
             .chat-send-button:hover {
                 background-color: var(--interactive-accent-hover);
+            }
+
+            .chat-loading-indicator {
+                display: none;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+                gap: 12px;
+            }
+
+            .loading-spinner {
+                width: 24px;
+                height: 24px;
+                border: 3px solid var(--background-modifier-border);
+                border-top: 3px solid var(--interactive-accent);
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+            }
+
+            .loading-text {
+                color: var(--text-muted);
+                font-size: 14px;
+            }
+
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
             }
         `;
         document.head.appendChild(style);
