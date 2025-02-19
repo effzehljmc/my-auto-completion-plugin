@@ -229,6 +229,12 @@ export class ChatPanel extends ItemView {
                 timestamp: Date.now()
             });
 
+            // If this is the first message, generate a title
+            if (currentChat.messages.length === 1) {
+                currentChat.title = this.generateChatTitle(content);
+                this.renderChatList(); // Update the chat list to show new title
+            }
+
             // Update UI immediately with user message
             this.renderMessages();
             
@@ -302,9 +308,25 @@ export class ChatPanel extends ItemView {
     }
 
     private generateChatTitle(content: string): string {
-        // Generate a short title from the first message
-        const words = content.split(' ').slice(0, 4);
-        return words.join(' ') + (words.length >= 4 ? '...' : '');
+        // Remove special characters and extra whitespace
+        const cleanContent = content.replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+        
+        // Split into words and get first 6 words
+        const words = cleanContent.split(' ');
+        
+        // If content is very short, use it as is
+        if (words.length <= 6) {
+            return cleanContent;
+        }
+        
+        // Try to find a natural break point (period, question mark, etc.)
+        const firstSentence = content.split(/[.!?]/, 1)[0].trim();
+        if (firstSentence && firstSentence.split(' ').length <= 8) {
+            return firstSentence;
+        }
+        
+        // Otherwise take first 6 meaningful words
+        return words.slice(0, 6).join(' ') + '...';
     }
 
     private async loadChatHistory() {

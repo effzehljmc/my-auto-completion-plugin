@@ -3,7 +3,7 @@
  * Handles API communication, context processing, and response parsing.
  */
 
-import { App, Editor, TFile } from 'obsidian';
+import { App, Editor, TFile, CachedMetadata } from 'obsidian';
 import { SettingsService } from './settings_service';
 import { TOKEN_LIMITS, DEFAULT_MODEL, SYSTEM_PROMPTS } from '../constants';
 import { AIRequestOptions, DocumentContext, IntentAnalysis } from '../types';
@@ -49,11 +49,33 @@ export class AIServiceError extends Error {
     constructor(
         message: string,
         public readonly code: string,
-        public readonly details?: any
+        public readonly details?: Error | Record<string, unknown>
     ) {
         super(message);
         this.name = 'AIServiceError';
     }
+}
+
+export interface EnhancedContext {
+    content: string;
+    mainTopics: string[];
+    keyPoints: string[];
+    documentStructure: {
+        type: string;
+        sections: string[];
+    };
+    entities: {
+        people?: string[];
+        organizations?: string[];
+        dates?: string[];
+        locations?: string[];
+    };
+}
+
+export interface ValidationError {
+    field: string;
+    message: string;
+    value?: unknown;
 }
 
 export class AIService {
@@ -65,6 +87,8 @@ export class AIService {
     private readonly MIN_TOKENS = 50;
     private readonly DEFAULT_TEMPERATURE = 0.7;
     private readonly SYSTEM_PROMPT = SYSTEM_PROMPTS.AI_SERVICE;
+    private readonly TOKEN_LIMITS = TOKEN_LIMITS;
+    private readonly DEFAULT_MODEL = DEFAULT_MODEL;
 
     /**
      * Monitoring interface for tracking AI service performance and errors
@@ -805,49 +829,52 @@ Content preview: ${note.content.slice(0, 500)}...`;
     }
 
     /**
-     * Find notes relevant to the user's query
+     * Find notes relevant to the user's query using semantic relevance scoring
      */
-    private async findRelevantNotes(query: string): Promise<Array<{ content: string; file: TFile }>> {
+    private async findRelevantNotes(query: string): Promise<Array<{ content: string; file: TFile; relevance: number }>> {
         const files = this.app.vault.getMarkdownFiles();
-        const relevantNotes: Array<{ content: string; file: TFile }> = [];
+        const relevantNotes: Array<{ content: string; file: TFile; relevance: number }> = [];
 
-        // Use metadata cache for quick filtering
+        // First pass: Quick filter using metadata cache
+        const potentialMatches: Array<{ file: TFile; initialScore: number }> = [];
+        
         for (const file of files) {
             const cache = this.app.metadataCache.getFileCache(file);
             if (!cache) continue;
 
-            // Check title and headings first (fast check)
-            const title = file.basename.toLowerCase();
-            const headings = cache.headings?.map(h => h.heading.toLowerCase()) || [];
-            const queryTerms = query.toLowerCase().split(/\s+/);
-
-            if (queryTerms.some(term => 
-                title.includes(term) || 
-                headings.some(h => h.includes(term))
-            )) {
-                try {
-                    const content = await this.app.vault.cachedRead(file);
-                    relevantNotes.push({ content, file });
-                } catch (error) {
-                    console.warn(`Failed to read file ${file.path}:`, error);
-                }
-                continue;
-            }
-
-            // If we haven't found enough notes, check content
-            if (relevantNotes.length < 3) {
-                try {
-                    const content = await this.app.vault.cachedRead(file);
-                    if (queryTerms.some(term => content.toLowerCase().includes(term))) {
-                        relevantNotes.push({ content, file });
-                    }
-                } catch (error) {
-                    console.warn(`Failed to read file ${file.path}:`, error);
-                }
+            const initialScore = this.calculateInitialRelevance(file, cache, query);
+            if (initialScore > 0) {
+                potentialMatches.push({ file, initialScore });
             }
         }
 
-        return relevantNotes;
+        // Sort potential matches by initial score and take top N
+        potentialMatches.sort((a, b) => b.initialScore - a.initialScore);
+        const topMatches = potentialMatches.slice(0, 10); // Limit detailed analysis to top 10 matches
+
+        // Second pass: Detailed content analysis
+        for (const match of topMatches) {
+            const content = await this.app.vault.read(match.file);
+            const relevanceScore = await this.calculateDetailedRelevance(content, query);
+            
+            if (relevanceScore > 0.5) { // Only include if relevance is above threshold
+                relevantNotes.push({
+                    content,
+                    file: match.file,
+                    relevance: relevanceScore
+                });
+            }
+        }
+
+        return relevantNotes.sort((a, b) => b.relevance - a.relevance);
+    }
+
+    /**
+     * Check if a file was modified recently (within last 7 days)
+     */
+    private isRecentlyModified(file: TFile): boolean {
+        const RECENT_THRESHOLD = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
+        return Date.now() - file.stat.mtime < RECENT_THRESHOLD;
     }
 
     /**
@@ -1007,7 +1034,7 @@ Content preview: ${note.content.slice(0, 500)}...`;
     /**
      * Create enhanced context for document processing with improved error handling
      */
-    private async createEnhancedContext(content: string, type: string): Promise<any> {
+    private async createEnhancedContext(content: string, type: string): Promise<EnhancedContext> {
         try {
             const prompt = `Analyze this ${type} document and create a structured context. Return only a JSON object with no additional text or formatting.
 
@@ -1016,6 +1043,7 @@ ${content.slice(0, 2000)}... (truncated)
 
 The response must be a valid JSON object with exactly this structure:
 {
+    "content": string,
     "mainTopics": string[],
     "keyPoints": string[],
     "documentStructure": {
@@ -1064,6 +1092,7 @@ The response must be a valid JSON object with exactly this structure:
                 
                 // Return a safe fallback structure
                 return {
+                    content,
                     mainTopics: [],
                     keyPoints: [],
                     documentStructure: {
@@ -1089,8 +1118,9 @@ The response must be a valid JSON object with exactly this structure:
      * @param context The context object to validate
      * @returns boolean indicating if the structure is valid
      */
-    private validateContextStructure(context: any): boolean {
+    private validateContextStructure(context: EnhancedContext): boolean {
         return (
+            typeof context.content === 'string' &&
             Array.isArray(context.mainTopics) &&
             Array.isArray(context.keyPoints) &&
             typeof context.documentStructure === 'object' &&
@@ -1148,11 +1178,11 @@ The response must be a valid JSON object with exactly this structure:
         return "I encountered an error while processing your request. Please try again.";
     }
 
-    private log(category: string, message: string, data?: any) {
+    private log(category: string, message: string, data?: Record<string, unknown>): void {
         console.log(`🤖 [${new Date().toISOString()}] [AI] [${category}] ${message}${data ? '\nDetails: ' + JSON.stringify(data, null, 2) : ''}`);
     }
 
-    private async analyzeDocument(content: string, context?: DocumentContext): Promise<any> {
+    private async analyzeDocument(content: string, context?: DocumentContext): Promise<EnhancedContext> {
         this.log('Analysis', 'Starting document analysis', {
             contentLength: content.length,
             hasContext: !!context
@@ -1166,6 +1196,7 @@ ${content.slice(0, 2000)}... (truncated)
 
 The response must be a valid JSON object with exactly this structure:
 {
+    "content": string,
     "mainTopics": string[],
     "keyPoints": string[],
     "documentStructure": {
@@ -1211,6 +1242,7 @@ The response must be a valid JSON object with exactly this structure:
             
             // Return a safe fallback structure
             return {
+                content,
                 mainTopics: [],
                 keyPoints: [],
                 documentStructure: {
@@ -1260,5 +1292,79 @@ The response must be a valid JSON object with exactly this structure:
         }
         
         return fullPrompt + prompt;
+    }
+
+    /**
+     * Calculate initial relevance score based on metadata
+     * @private
+     */
+    private calculateInitialRelevance(file: TFile, cache: CachedMetadata, query: string): number {
+        let initialScore = 0;
+        const title = file.basename.toLowerCase();
+        const headings = cache.headings?.map((h: { heading: string }) => h.heading.toLowerCase()) || [];
+        const queryTerms = query.toLowerCase().split(/\s+/).filter(term => 
+            // Filter out common stop words
+            !['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of'].includes(term)
+        );
+
+        // Title matches are weighted heavily
+        if (queryTerms.some(term => title.includes(term))) {
+            initialScore += 0.5;
+        }
+
+        // Heading matches contribute to score
+        if (headings.some((h: string) => queryTerms.some(term => h.includes(term)))) {
+            initialScore += 0.3;
+        }
+
+        // Recent modifications increase score
+        if (this.isRecentlyModified(file)) {
+            initialScore += 0.2;
+        }
+
+        return initialScore;
+    }
+
+    /**
+     * Calculate detailed relevance score using LLM analysis
+     * @private
+     */
+    private async calculateDetailedRelevance(content: string, query: string): Promise<number> {
+        try {
+            const analysisResponse = await this.makeAIRequest({
+                prompt: `Analyze how relevant this document is to the user's query.
+
+Query: "${query}"
+
+Document Preview: ${content.slice(0, 1000)}...
+
+Return a JSON object with this structure:
+{
+    "relevanceScore": number (0-1),
+    "confidence": number (0-1)
+}
+
+Consider:
+1. Semantic relevance to the query
+2. Document's main topics and themes
+3. Specific information that matches the query`,
+                maxTokens: 100,
+                temperature: 0.3,
+                response_format: { type: "json_object" }
+            });
+
+            const analysis = this.safeJSONParse<{
+                relevanceScore: number;
+                confidence: number;
+            }>(analysisResponse.choices[0]?.message?.content || '');
+
+            if (analysis && analysis.confidence > 0.6) {
+                return analysis.relevanceScore;
+            }
+        } catch (error) {
+            console.warn('Failed to calculate detailed relevance:', error);
+        }
+
+        return 0;
     }
 }

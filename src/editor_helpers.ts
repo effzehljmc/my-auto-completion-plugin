@@ -3,7 +3,7 @@ import { EditorState, Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
 export function posFromIndex(doc: Text, offset: number): EditorPosition {
-    let line = doc.lineAt(offset)
+    const line = doc.lineAt(offset)
     return { line: line.number - 1, ch: offset - line.from }
 }
 
@@ -13,12 +13,16 @@ export function indexFromPos(doc: Text, pos: EditorPosition): number {
     return Math.min(line.from + Math.max(0, ch), line.to)
 }
 
+type CodeMirrorEditor = {
+    cm: EditorView & { state: EditorState };
+};
+
 export function editorToCodeMirrorState(editor: Editor): EditorState {
-    return (editor as any).cm.state;
+    return ((editor as unknown) as CodeMirrorEditor).cm.state;
 }
 
 export function editorToCodeMirrorView(editor: Editor): EditorView {
-    return (editor as any).cm;
+    return ((editor as unknown) as CodeMirrorEditor).cm;
 }
 
 export function maybeLowerCase(str: string, lowerCase: boolean): string {
@@ -29,12 +33,12 @@ export function matchWordBackwards(
     editor: Editor,
     cursor: EditorPosition,
     charPredicate: (char: string) => boolean,
-    maxLookBackDistance: number = 50
+    maxLookBackDistance = 50
 ): { query: string, separatorChar: string } {
     let query = "", separatorChar = null;
 
     // Save some time for very long lines
-    let lookBackEnd = Math.max(0, cursor.ch - maxLookBackDistance);
+    const lookBackEnd = Math.max(0, cursor.ch - maxLookBackDistance);
     // Find word in front of cursor
     for (let i = cursor.ch - 1; i >= lookBackEnd; i--) {
         const prevChar = editor.getRange({ ...cursor, ch: i }, { ...cursor, ch: i + 1 });
@@ -69,14 +73,4 @@ export class BlockType {
     public get otherType(): BlockType {
         return this.otherType0;
     }
-}
-
-function substringMatches(str: string, toMatch: string, from: number): boolean {
-    const bound = from + toMatch.length - 1;
-    for (let i = from; i < bound; i++) {
-        if (str.charAt(i) !== toMatch.charAt(i - from))
-            return false;
-    }
-
-    return true;
 }
