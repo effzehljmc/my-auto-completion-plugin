@@ -2,7 +2,8 @@ export const TOKEN_LIMITS = {
     SUMMARY: 2000,      // For document summaries (≈1300-1400 words)
     ANALYSIS: 1500,     // For document analysis (≈1000 words)
     COMPLETION: 1000,   // For general completions (≈650-700 words)
-    INTENT: 300         // For intent analysis (sufficient for JSON)
+    INTENT: 300,         // For intent analysis (sufficient for JSON)
+    CONTENT: 2500        // Added for content formatting
 } as const;
 
 export const DEFAULT_MODEL = 'gpt-4o';

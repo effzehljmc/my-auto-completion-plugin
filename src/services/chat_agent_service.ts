@@ -38,14 +38,14 @@ interface DocumentAnalysis {
 }
 
 interface QueryIntent {
+    queryType: 'summary' | 'question' | 'search' | 'create' | 'general' | 'format';
     documentType: 'meeting' | 'research' | 'technical' | 'note' | 'other';
     confidence: number;
     expectedMetadata: {
-        topic: string | null;
-        keywords: string[] | null;
-        date: string | null;
+        topic: string;
+        keywords?: string[];
+        category?: string;
     };
-    queryType: 'summary' | 'question' | 'search' | 'other';
 }
 
 interface DocumentMatch {
@@ -90,6 +90,8 @@ export class ChatAgentService {
             } : undefined
         );
     }
+
+    private lastCreatedFile: TFile | null = null;
 
     constructor(
         private app: App,
@@ -268,31 +270,37 @@ ${end}`.slice(0, 1500); // Limit sample size
 
     private async analyzeQueryIntent(message: string): Promise<QueryIntent | null> {
         try {
-            const prompt = `Analyze what type of document this message is asking about.
+            const prompt = `Analyze what type of request this message represents.
+            Message: "${message}"
             
-Message: "${message}"
+            Return a JSON object:
+            {
+                "queryType": "summary" | "question" | "search" | "create" | "general" | "format",
+                "documentType": "meeting" | "research" | "technical" | "note" | "other",
+                "confidence": number (0-1),
+                "expectedMetadata": {
+                    "topic": string,
+                    "keywords": string[],
+                    "category": string
+                }
+            }
+            
+            Examples:
+            - "summarize the meeting notes from yesterday" -> summary + meeting
+            - "what did we discuss about AI research?" -> question + research
+            - "find documents about project planning" -> search + technical
+            - "create a new note about machine learning basics" -> create + research
+            - "format this note" -> format + note
+            `;
 
-Return a JSON object with this structure:
-{
-    "documentType": "meeting" | "research" | "technical" | "note" | "other",
-    "confidence": number (0-1),
-    "expectedMetadata": {
-        "topic": string | null,
-        "keywords": string[] | null,
-        "date": string | null
-    },
-    "queryType": "summary" | "question" | "search" | "other"
-}
-
-Focus on explicit mentions of document types and topics.`;
-
-            const analysis = await this.aiService.generateContent(
+            const analysisResult = await this.aiService.generateContent(
                 prompt,
                 undefined,
                 { response_format: { type: "json_object" } }
             );
 
-            return JSON.parse(analysis);
+            const analysis: QueryIntent = JSON.parse(analysisResult);
+            return analysis;
         } catch (error) {
             this.log('Error', 'Error analyzing query intent', { error });
             return null;
@@ -574,6 +582,24 @@ Return a JSON object:
                             headings: []
                         }
                     }, queryIntent);
+                case 'create':
+                    return this.handleCreateIntent(message, context || {
+                        previousParagraphs: [],
+                        currentHeading: '',
+                        documentStructure: {
+                            title: '',
+                            headings: []
+                        }
+                    }, queryIntent);
+                case 'format':
+                    return this.handleFormatIntent(message, context || {
+                        previousParagraphs: [],
+                        currentHeading: '',
+                        documentStructure: {
+                            title: '',
+                            headings: []
+                        }
+                    }, queryIntent);
                 default:
                     return this.handleGeneralIntent(message, context || {
                         previousParagraphs: [],
@@ -711,6 +737,102 @@ Provide a clear and specific answer based on the document content. If the answer
         } catch (error) {
             this.log('Error', 'Error handling question intent', { error });
             return `I encountered an error while answering your question: ${error.message}`;
+        }
+    }
+
+    private async handleCreateIntent(
+        message: string,
+        context: DocumentContext,
+        intent: QueryIntent
+    ): Promise<string> {
+        this.log('Create', 'Handling create intent', { 
+            message,
+            type: intent.documentType,
+            topic: intent.expectedMetadata.topic
+        });
+
+        try {
+            // Generate a suitable filename
+            const sanitizedTopic = intent.expectedMetadata.topic
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '');
+            
+            const fileName = `${sanitizedTopic}.md`;
+            
+            // Check if file already exists
+            const existingFile = this.app.vault.getAbstractFileByPath(fileName);
+            if (existingFile) {
+                return `A note with the name "${fileName}" already exists. Please choose a different name or modify the existing note.`;
+            }
+
+            // Generate content for the new note
+            const contentPrompt = `Create content for a new ${intent.documentType} note about "${intent.expectedMetadata.topic}".
+            Include:
+            1. A clear title as a level 1 heading
+            2. A brief introduction/overview
+            3. Main sections with level 2 headings
+            4. Key points or concepts as bullet points
+            5. References or related topics (if applicable)
+            6. Tags in YAML frontmatter
+            
+            Format in clean, well-structured Markdown with proper YAML frontmatter.`;
+
+            const content = await this.aiService.generateContent(contentPrompt);
+
+            try {
+                // Create the file in the root of the vault
+                const file = await this.app.vault.create(fileName, content);
+                this.lastCreatedFile = file;
+                
+                // Open the newly created file
+                const leaf = this.app.workspace.getLeaf(false);
+                await leaf.openFile(file);
+
+                this.log('Create', 'Created new note', { 
+                    file: file.basename,
+                    type: intent.documentType,
+                    topic: intent.expectedMetadata.topic
+                });
+
+                return `I've created a new note "${file.basename}" about ${intent.expectedMetadata.topic} and opened it for you.`;
+            } catch (fileError) {
+                this.log('Error', 'Error creating file', { fileError });
+                return `I couldn't create the note. Error: ${fileError.message}`;
+            }
+        } catch (error) {
+            this.log('Error', 'Error in create intent handler', { error });
+            return `I encountered an error while creating the note: ${error.message}`;
+        }
+    }
+
+    private async handleFormatIntent(
+        message: string,
+        context: DocumentContext,
+        intent: QueryIntent
+    ): Promise<string> {
+        const sourceFile = context?.sourceFile;
+        if (!sourceFile) {
+            return "I'm not sure which note you'd like me to format. Could you specify the note or create a new one first?";
+        }
+
+        try {
+            const content = await this.app.vault.read(sourceFile);
+            
+            // Use the new formatMarkdownContent method
+            const improvedContent = await this.aiService.formatMarkdownContent(content);
+            
+            // Update the file with improved formatting
+            await this.app.vault.modify(sourceFile, improvedContent);
+            
+            // Open the formatted file
+            const leaf = this.app.workspace.getLeaf();
+            await leaf.openFile(sourceFile);
+
+            return "I've improved the formatting of your note to ensure proper rendering in Obsidian. The note is now open for your review.";
+        } catch (error) {
+            console.error('Error formatting note:', error);
+            return "I encountered an error while trying to format the note. Please try again or check the console for details.";
         }
     }
 }

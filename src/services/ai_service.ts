@@ -1441,4 +1441,36 @@ Consider:
             return null;
         }
     }
+
+    /**
+     * Format markdown content with proper rendering
+     */
+    async formatMarkdownContent(content: string): Promise<string> {
+        try {
+            const prompt = `Format this markdown content to ensure proper rendering in Obsidian. 
+            Follow these rules:
+            1. Remove visible markdown syntax (**, #, etc) that should be rendered
+            2. Ensure proper spacing around headers
+            3. Use proper list formatting with correct indentation
+            4. Format code blocks correctly
+            5. Preserve YAML frontmatter if present
+            6. Maintain all original content and links
+            7. Use proper Obsidian-compatible syntax
+
+            Content to format:
+            ${content}`;
+
+            const response = await this.makeAIRequest({
+                prompt,
+                maxTokens: TOKEN_LIMITS.CONTENT,
+                temperature: 0.3,
+                response_format: { type: "text" }
+            });
+
+            return this.parseContentResponse(response);
+        } catch (error) {
+            this.handleError(error, 'Markdown formatting failed');
+            return content; // Return original content if formatting fails
+        }
+    }
 }
