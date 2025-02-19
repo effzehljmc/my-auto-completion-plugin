@@ -52,11 +52,11 @@ export const DEFAULT_SETTINGS: MyAutoCompletionSettings = {
     calloutProviderEnabled: true,
     calloutProviderSource: CalloutProviderSource.DEFAULT,
     aiApiKey: '',
-    aiModel: 'gpt-3.5-turbo-0125',
+    aiModel: 'gpt-4o',
     aiTemperature: 0.7,
     aiMaxTokens: 500,
     formattingSuggestionsEnabled: false,
-    defaultModel: 'gpt-3.5-turbo'
+    defaultModel: 'gpt-4o'
 }
 
 export function intoMyAutoCompletionPath(vault: Vault, ...path: string[]): string {

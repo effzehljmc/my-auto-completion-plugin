@@ -7,6 +7,8 @@ import { ActionGeneratorService } from './action_generator_service';
 import { ProviderService } from './provider_service';
 import { SettingsService } from './settings_service';
 import { UIService } from './ui_service';
+import { TOKEN_LIMITS, DEFAULT_MODEL, SYSTEM_PROMPTS } from '../constants';
+import { IntentAnalysis } from '../types';
 
 interface DocumentMetadata {
     date: string | null;
@@ -23,38 +25,28 @@ interface EnhancedDocumentContext extends DocumentContext {
     relatedDocuments?: string[];
 }
 
-interface IntentAnalysis {
-    intent: 'summarize' | 'command' | 'question' | 'action' | 'other';
-    subIntent?: 'meeting' | 'research' | 'technical' | 'general';
-    confidence: number;
-    entities: {
-        documentType?: string;
-        specificDocument?: string;
-        timeFrame?: string;
-        scope?: string;
-    };
-    requiresContext: boolean;
-    reasoning: string;
-}
-
 export class ChatAgentService {
+    private lastLogTimestamp: number = 0;
     private commandService: CommandService;
     private fileNavigationService: FileNavigationService;
     private memoryService: MemoryService;
     private actionGeneratorService: ActionGeneratorService;
 
+    private readonly SYSTEM_PROMPT = SYSTEM_PROMPTS.CHAT_AGENT;
+    private readonly DEFAULT_MODEL = DEFAULT_MODEL;
+
     // Add logging utility
     private log(category: string, message: string, data?: any) {
-        const timestamp = new Date().toISOString();
-        const logMessage = `🤖 [${timestamp}] [ChatAgent] [${category}] ${message}`;
+        const now = Date.now();
+        const timeSinceLastLog = now - this.lastLogTimestamp;
+        this.lastLogTimestamp = now;
         
-        // Always log to console.info for critical operations
-        console.info(logMessage);
-        
-        // Additional debug information if data is present
-        if (data) {
-            console.info('Details:', data);
-        }
+        console.log(`🤖 [${new Date().toISOString()}] [ChatAgent] [${category}] ${message}`, 
+            data ? {
+                ...data,
+                timeSinceLastLog
+            } : undefined
+        );
     }
 
     constructor(
@@ -92,6 +84,214 @@ export class ChatAgentService {
         this.log('Init', 'Services initialized successfully');
     }
 
+    private async findRelevantFile(message: string, context?: DocumentContext): Promise<TFile | null> {
+        const files = this.app.vault.getMarkdownFiles();
+        const normalizedQuery = message.toLowerCase();
+        
+        this.log('FileMatch', 'Starting file search', { 
+            query: message,
+            normalizedQuery,
+            totalFiles: files.length,
+            hasContext: !!context
+        });
+
+        // If we have a current file in context and it matches our query, use it
+        if (context?.sourceFile) {
+            const fileName = context.sourceFile.basename.toLowerCase();
+            this.log('FileMatch', 'Checking current file', { 
+                fileName,
+                isRelevant: this.isFileNameRelevant(fileName, normalizedQuery)
+            });
+            
+            if (this.isFileNameRelevant(fileName, normalizedQuery)) {
+                this.log('FileMatch', 'Using current file', { fileName });
+                return context.sourceFile;
+            }
+        }
+
+        // First, look for exact matches
+        this.log('FileMatch', 'Looking for exact matches');
+        for (const file of files) {
+            const fileName = file.basename.toLowerCase();
+            const isRelevant = this.isFileNameRelevant(fileName, normalizedQuery);
+            
+            this.log('FileMatch', 'Checking file for exact match', { 
+                fileName,
+                isRelevant
+            });
+            
+            if (isRelevant) {
+                this.log('FileMatch', 'Found exact match', { fileName });
+                return file;
+            }
+        }
+
+        // Then look for partial matches
+        this.log('FileMatch', 'Looking for partial matches');
+        for (const file of files) {
+            const fileName = file.basename.toLowerCase();
+            const words = normalizedQuery.split(' ');
+            const significantWords = words.filter(word => 
+                word.length > 3 && 
+                !['the', 'and', 'for', 'with', 'this', 'that'].includes(word)
+            );
+            
+            const matchingWords = significantWords.filter(word => 
+                fileName.includes(word)
+            );
+            
+            this.log('FileMatch', 'Checking file for partial match', { 
+                fileName,
+                significantWords,
+                matchingWords,
+                matchCount: matchingWords.length
+            });
+            
+            if (matchingWords.length >= 2) {
+                this.log('FileMatch', 'Found partial match', { 
+                    fileName,
+                    matchingWords 
+                });
+                return file;
+            }
+        }
+
+        this.log('FileMatch', 'No matching file found');
+        return null;
+    }
+
+    private isFileNameRelevant(fileName: string, query: string): boolean {
+        this.log('FileMatch', 'Checking relevance', { 
+            fileName,
+            query
+        });
+
+        // Extract the target file name from the query
+        const targetFileName = query.match(/(?:summary of|summarize|about)\s+(?:the\s+)?([^.?!]+)(?:\s+note)?/i)?.[1]?.toLowerCase();
+        
+        if (!targetFileName) {
+            this.log('FileMatch', 'No target file name found in query');
+            return false;
+        }
+
+        this.log('FileMatch', 'Extracted target file name', { targetFileName });
+
+        // Normalize file name and target
+        const normalizedFileName = fileName.toLowerCase();
+        const normalizedTarget = targetFileName.trim();
+
+        // Check for exact match first
+        if (normalizedFileName === normalizedTarget) {
+            this.log('FileMatch', 'Exact match found', { 
+                fileName,
+                targetFileName 
+            });
+            return true;
+        }
+
+        // Split into words and check for significant word matches
+        const fileWords = normalizedFileName.split(/\W+/);
+        const targetWords = normalizedTarget.split(/\W+/).filter(word => 
+            // Filter out common words that shouldn't affect matching
+            !['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of'].includes(word)
+        );
+
+        // Calculate how many significant words match
+        const matchingWords = targetWords.filter(word => fileWords.includes(word));
+        const matchRatio = matchingWords.length / targetWords.length;
+
+        this.log('FileMatch', 'Word match analysis', { 
+            fileWords,
+            targetWords,
+            matchingWords,
+            matchRatio
+        });
+
+        // Require a high match ratio (80% or more of significant words must match)
+        const isRelevant = matchRatio >= 0.8;
+
+        this.log('FileMatch', `Relevance ${isRelevant ? 'found' : 'not found'}`, { 
+            matchRatio,
+            threshold: 0.8
+        });
+
+        return isRelevant;
+    }
+
+    private async processMessage(
+        message: string,
+        context?: DocumentContext
+    ): Promise<string> {
+        this.log('Process', 'Starting message processing', {
+            message,
+            hasContext: !!context,
+            currentFile: context?.sourceFile?.basename
+        });
+
+        try {
+            // First, try to find a relevant file based on the message
+            const relevantFile = await this.findRelevantFile(message, context);
+            if (relevantFile) {
+                this.log('Process', 'Found relevant file', { 
+                    file: relevantFile.basename,
+                    path: relevantFile.path,
+                    matchedFrom: context?.sourceFile === relevantFile ? 'context' : 'search'
+                });
+                
+                // Read the file content and enhance the context
+                const fileContent = await this.fileNavigationService.readFileContent(relevantFile);
+                context = {
+                    ...context,
+                    sourceFile: relevantFile,
+                    content: fileContent,
+                    currentParagraph: fileContent
+                };
+            } else {
+                this.log('Process', 'No relevant file found for query');
+            }
+
+            const intentAnalysis = await this.analyzeIntent(message, context);
+            this.log('Process', 'Intent analyzed', { 
+                intent: intentAnalysis.intent,
+                confidence: intentAnalysis.confidence,
+                subIntent: intentAnalysis.subIntent
+            });
+
+            // Handle different intents based on confidence and type
+            if (intentAnalysis.confidence >= 0.7) {
+                switch (intentAnalysis.intent) {
+                    case 'summarize':
+                        const targetFile = context?.sourceFile;
+                        if (!targetFile) {
+                            this.log('Process', 'No target file for summary');
+                            return "Could you please specify which document you'd like me to summarize?";
+                        }
+                        if (!context?.content) {
+                            this.log('Process', 'No content in context, reading file');
+                            context.content = await this.fileNavigationService.readFileContent(targetFile);
+                        }
+                        return await this.handleSummarizeIntent(message, context, intentAnalysis);
+                    case 'command':
+                        return await this.handleCommandIntent(message, context);
+                    case 'action':
+                        return await this.handleActionIntent(message, context);
+                    case 'question':
+                        return await this.handleQuestionIntent(message, context, intentAnalysis);
+                }
+            }
+
+            // For low confidence or unhandled intents, generate a general response
+            this.log('Process', 'Using general response for low confidence/unhandled intent');
+            return await this.aiService.generateContent(
+                `Respond to this user message in a helpful and natural way: ${message}`,
+                this.memoryService.getEnhancedContext(context)
+            );
+        } catch (error) {
+            this.log('Error', 'Message processing failed', { error });
+            return "I encountered an error while processing your request. Please try again.";
+        }
+    }
+
     private async findMeetingNotes(message: string): Promise<{ content: string; file: TFile } | null> {
         this.log('Search', 'Looking for meeting notes', { query: message });
         try {
@@ -119,7 +319,8 @@ export class ChatAgentService {
                         "relevanceScore": number (0-1),
                         "reasoning": string
                     }`,
-                    { previousParagraphs: [], currentHeading: '', documentStructure: { headings: [] } }
+                    { previousParagraphs: [], currentHeading: '', documentStructure: { headings: [] } },
+                    { response_format: { type: "json_object" } }
                 );
 
                 try {
@@ -184,6 +385,12 @@ export class ChatAgentService {
         file: TFile,
         baseContext: DocumentContext
     ): Promise<EnhancedDocumentContext> {
+        this.log('Context', 'Creating enhanced context', {
+            fileBasename: file.basename,
+            contentLength: content.length,
+            hasBaseContext: !!baseContext
+        });
+
         try {
             // First, determine the document type
             const typeAnalysis = await this.aiService.generateContent(
@@ -196,52 +403,98 @@ export class ChatAgentService {
                     "confidence": number (0-1),
                     "reasoning": string
                 }`,
-                baseContext
+                baseContext,
+                { response_format: { type: "json_object" } }
             );
+
+            this.log('Context', 'Document type analysis received', {
+                analysisLength: typeAnalysis.length
+            });
 
             const typeInfo = JSON.parse(typeAnalysis);
 
+            this.log('Context', 'Document type determined', {
+                type: typeInfo.type,
+                confidence: typeInfo.confidence
+            });
+
             // Now analyze the content based on the detected type
             const analysisPrompt = this.getAnalysisPromptForType(typeInfo.type, content);
-            const contentAnalysis = await this.aiService.generateContent(analysisPrompt, baseContext);
+            const contentAnalysis = await this.aiService.generateContent(analysisPrompt, baseContext, { response_format: { type: "json_object" } });
             const analysis = JSON.parse(contentAnalysis);
+
+            this.log('Context', 'Detailed analysis received', {
+                analysisLength: contentAnalysis.length
+            });
+
+            this.log('Context', 'Analysis parsed', {
+                hasKeyPoints: !!analysis.keyPoints,
+                hasReferences: !!analysis.references,
+                keyPointCount: analysis.keyPoints?.length
+            });
 
             // Create enhanced context with type-specific processing
             const enhancedContext: EnhancedDocumentContext = {
-                ...baseContext,
-                previousParagraphs: analysis.relevantParagraphs || [],
-                documentStructure: {
-                    title: file.basename,
-                    headings: analysis.keyHeadings || []
-                },
-                sourceFile: file,
-                currentHeading: analysis.keyHeadings?.[0] || '',
+                ...this.createBasicContext(content, file, baseContext),
                 metadata: {
+                    type: typeInfo.type,
                     date: analysis.metadata?.date || null,
                     author: analysis.metadata?.author || null,
                     tags: analysis.metadata?.tags || null,
-                    type: typeInfo.type,
                     customFields: analysis.metadata?.customFields || {}
-                }
+                },
+                keyPoints: analysis.keyPoints,
+                references: analysis.references,
+                relatedDocuments: analysis.relatedDocuments
             };
 
-            // Add type-specific fields
-            if (analysis.keyPoints) {
-                enhancedContext.keyPoints = analysis.keyPoints;
-            }
-            if (analysis.references) {
-                enhancedContext.references = analysis.references;
-            }
-            if (analysis.relatedDocuments) {
-                enhancedContext.relatedDocuments = analysis.relatedDocuments;
-            }
-
             return enhancedContext;
-                } catch (error) {
-            console.error('Error creating enhanced context:', error);
-            // Fallback to basic context if AI analysis fails
+        } catch (error) {
+            this.log('Error', 'Enhanced context creation failed', { error });
             return this.createBasicContext(content, file, baseContext);
         }
+    }
+
+    private createBasicContext(
+        content: string,
+        file: TFile,
+        baseContext: DocumentContext
+    ): EnhancedDocumentContext {
+        this.log('Context', 'Creating basic context', {
+            fileBasename: file.basename,
+            contentLength: content.length,
+            hasBaseContext: !!baseContext
+        });
+
+        const paragraphs = content.split('\n\n').slice(0, 5);
+        const headings = content.split('\n')
+            .filter(line => line.startsWith('#'))
+            .map(line => line.replace(/^#+\s*/, ''));
+
+        this.log('Context', 'Extracted document structure', {
+            paragraphCount: paragraphs.length,
+            headingCount: headings.length
+        });
+
+        return {
+            ...baseContext,
+            content,
+            previousParagraphs: paragraphs,
+            currentParagraph: paragraphs[0] || '',
+            currentHeading: headings[0] || '',
+            documentStructure: {
+                title: file.basename,
+                headings: headings
+            },
+            sourceFile: file,
+            metadata: {
+                date: null,
+                author: null,
+                tags: null,
+                type: 'other',
+                customFields: {}
+            }
+        };
     }
 
     private getAnalysisPromptForType(type: string, content: string): string {
@@ -306,34 +559,6 @@ export class ChatAgentService {
         }
     }
 
-    private createBasicContext(
-        content: string,
-        file: TFile,
-        baseContext: DocumentContext
-    ): EnhancedDocumentContext {
-        const paragraphs = content.split('\n\n').slice(0, 5);
-        const headings = content.split('\n')
-            .filter(line => line.startsWith('#'))
-            .map(line => line.replace(/^#+\s*/, ''));
-
-        return {
-            ...baseContext,
-            previousParagraphs: paragraphs,
-            documentStructure: {
-                title: file.basename,
-                headings: headings
-            },
-            sourceFile: file,
-            metadata: {
-                date: null,
-                author: null,
-                tags: null,
-                type: 'other',
-                customFields: {}
-            }
-        };
-    }
-
     private async summarizeDocument(context: DocumentContext): Promise<string> {
         const currentFile = context.sourceFile;
 
@@ -343,191 +568,64 @@ export class ChatAgentService {
 
         try {
             const fileContent = await this.fileNavigationService.readFileContent(currentFile);
+            this.log('Summary', 'File content loaded', {
+                fileSize: fileContent.length,
+                fileName: currentFile.basename
+            });
 
             // Create an enhanced context with document-specific analysis
             const enhancedContext = await this.createEnhancedContext(
                 fileContent,
                 currentFile,
-                context
+                {
+                    ...context,
+                    content: fileContent, // Ensure file content is included in context
+                    previousParagraphs: fileContent.split('\n\n').slice(0, 5),
+                    documentStructure: {
+                        title: currentFile.basename,
+                        headings: fileContent.split('\n')
+                            .filter(line => line.startsWith('#'))
+                            .map(line => line.replace(/^#+\s*/, ''))
+                    }
+                }
             );
 
-            // Generate the summary using a more comprehensive prompt
+            this.log('Summary', 'Enhanced context created', {
+                contextType: enhancedContext.metadata?.type,
+                hasKeyPoints: !!enhancedContext.keyPoints,
+                keyPointsCount: enhancedContext.keyPoints?.length
+            });
+
+            // Create the summary prompt
+            const summaryPrompt = this.createSummaryPrompt(enhancedContext);
+            this.log('Summary', 'Generating summary', {
+                promptLength: summaryPrompt.length,
+                contextType: enhancedContext.metadata?.type,
+                prompt: summaryPrompt.slice(0, 100) + '...'
+            });
+
+            // Generate the summary
             const summary = await this.aiService.generateContent(
-                `Please provide a comprehensive summary of this document. Include:
-
-                1. Main topic or purpose
-                2. Key findings or arguments
-                3. Important conclusions
-                4. Methodology or approach (if applicable)
-                5. Significant data or evidence presented
-                6. Implications or recommendations
-
-                If the document is research-focused, emphasize:
-                - Research questions/objectives
-                - Methodology
-                - Key findings
-                - Conclusions
-
-                If it's a technical document, focus on:
-                - Core concepts
-                - Technical specifications
-                - Implementation details
-                - Best practices or guidelines
-
-                Format the summary in a clear, structured way that highlights the most important points.`,
-                enhancedContext
+                summaryPrompt,
+                {
+                    ...enhancedContext,
+                    content: fileContent // Ensure file content is included in final context
+                }
             );
+
+            this.log('Summary', 'Summary generated', {
+                summaryLength: summary.length,
+                processingTime: Date.now(),
+                content: summary.slice(0, 100) + '...',
+                context: enhancedContext
+            });
 
             return summary;
 
         } catch (error) {
-            console.error('Error summarizing document:', error);
+            this.log('Error', 'Error summarizing document', { error });
             return `I encountered an error while summarizing the document: ${error.message}`;
         }
-    }
-
-    /**
-     * Process a user message and generate appropriate actions and responses
-     */
-    async processMessage(message: string, context: DocumentContext): Promise<string> {
-        this.log('Process', 'Starting message processing', { 
-            message,
-            hasContext: !!context,
-            currentFile: context.sourceFile?.path
-        });
-
-        try {
-            // Update conversation context
-            this.memoryService.updateContext(context);
-
-            // Analyze user intent
-            const intent = await this.analyzeIntent(message, context);
-            
-            // Handle different intents based on confidence and type
-            if (intent.confidence >= 0.7) {
-                switch (intent.intent) {
-                    case 'summarize':
-                        return await this.handleSummarizeIntent(message, context, intent);
-                    case 'command':
-                        return await this.handleCommandIntent(message, context);
-                    case 'action':
-                        return await this.handleActionIntent(message, context);
-                    case 'question':
-                        return await this.handleQuestionIntent(message, context, intent);
-                }
-            }
-
-            // For low confidence or unhandled intents, generate a general response
-            return await this.aiService.generateContent(
-                `Respond to this user message in a helpful and natural way: ${message}`,
-                this.memoryService.getEnhancedContext(context)
-            );
-        } catch (error) {
-            this.log('Error', 'Message processing failed', {
-                error: error.message,
-                stack: error.stack
-            });
-            return "I encountered an error while processing your request. Please try again.";
-        }
-    }
-
-    private async analyzeIntent(message: string, context: DocumentContext): Promise<IntentAnalysis> {
-        this.log('Analysis', 'Starting intent analysis', { message });
-        try {
-            const intentAnalysis = await this.aiService.generateContent(
-                `You are a JSON generator. Output a SINGLE valid JSON object.
-                DO NOT include any other text, markdown, or formatting.
-                DO NOT wrap the JSON in code blocks.
-                DO NOT add explanations.
-                ONLY return the JSON object itself.
-
-                Analyze this message: "${message}"
-                Current document: ${context.sourceFile?.basename || 'None'}
-                
-                Return this exact structure:
-                {
-                    "intent": "summarize" | "command" | "question" | "action" | "other",
-                    "subIntent": "meeting" | "research" | "technical" | "general" | null,
-                    "confidence": number between 0 and 1,
-                    "entities": {
-                        "documentType": string or null,
-                        "specificDocument": string or null,
-                        "timeFrame": string or null,
-                        "scope": string or null
-                    },
-                    "requiresContext": boolean,
-                    "reasoning": string
-                }
-
-                Example of valid response:
-                {"intent":"summarize","subIntent":"research","confidence":0.9,"entities":{"documentType":"research","specificDocument":null,"timeFrame":null,"scope":null},"requiresContext":true,"reasoning":"User requests document summary"}`,
-                context
-            );
-
-            try {
-                // Clean the response of any potential markdown or extra text
-                const cleanedResponse = intentAnalysis
-                    .replace(/```json/g, '')
-                    .replace(/```/g, '')
-                    .trim();
-
-                // Validate that the response starts with { and ends with }
-                if (!cleanedResponse.startsWith('{') || !cleanedResponse.endsWith('}')) {
-                    throw new Error('Response is not a valid JSON object');
-                }
-
-                const parsedIntent = JSON.parse(cleanedResponse);
-
-                // Validate the parsed object has required fields
-                if (!this.isValidIntentAnalysis(parsedIntent)) {
-                    throw new Error('Parsed JSON does not match required IntentAnalysis structure');
-                }
-
-                return parsedIntent;
-            } catch (parseError) {
-                this.log('Error', 'Failed to parse intent analysis JSON', { 
-                    error: parseError.message,
-                    rawResponse: intentAnalysis,
-                    cleanedResponse: intentAnalysis
-                        .replace(/```json/g, '')
-                        .replace(/```/g, '')
-                        .trim()
-                });
-                
-                // Return a safe default with the raw response in reasoning
-                return {
-                    intent: 'other',
-                    confidence: 0.5,
-                    entities: {},
-                    requiresContext: false,
-                    reasoning: `Failed to parse response. Raw: ${intentAnalysis.slice(0, 100)}...`
-                };
-            }
-        } catch (error) {
-            this.log('Error', 'Intent analysis failed', { error: error.message });
-            return {
-                intent: 'other',
-                confidence: 0.5,
-                entities: {},
-                requiresContext: false,
-                reasoning: 'Failed to analyze intent'
-            };
-        }
-    }
-
-    private isValidIntentAnalysis(obj: any): obj is IntentAnalysis {
-        return (
-            obj &&
-            typeof obj === 'object' &&
-            ['summarize', 'command', 'question', 'action', 'other'].includes(obj.intent) &&
-            (!obj.subIntent || ['meeting', 'research', 'technical', 'general'].includes(obj.subIntent)) &&
-            typeof obj.confidence === 'number' &&
-            obj.confidence >= 0 &&
-            obj.confidence <= 1 &&
-            typeof obj.entities === 'object' &&
-            typeof obj.requiresContext === 'boolean' &&
-            typeof obj.reasoning === 'string'
-        );
     }
 
     private async handleSummarizeIntent(
@@ -538,7 +636,8 @@ export class ChatAgentService {
         this.log('Summary', 'Starting summary generation', { 
             subIntent: intent.subIntent,
             hasContext: !!context,
-            currentFile: context.sourceFile?.path
+            currentFile: context.sourceFile?.path,
+            messageLength: message.length
         });
         
         try {
@@ -546,142 +645,133 @@ export class ChatAgentService {
             const targetFile = context.sourceFile;
 
             if (!targetFile) {
-                this.log('Summary', 'No active file found');
-                return "Could you please open the document you'd like me to summarize?";
+                this.log('Summary', 'No target file found');
+                return "Could you please specify which document you'd like me to summarize?";
             }
 
-            this.log('Summary', 'Reading file content', { file: targetFile.path });
+            // Read file content
             const fileContent = await this.fileNavigationService.readFileContent(targetFile);
-
-            // Create enhanced context with document analysis
-            this.log('Summary', 'Creating enhanced context');
-            const enhancedContext = await this.createEnhancedContext(
-                fileContent,
-                targetFile,
-                            context
-                        );
-                        
-            this.log('Summary', 'Document type detected', { 
-                type: enhancedContext.metadata?.type,
-                hasKeyPoints: !!enhancedContext.keyPoints
+            this.log('Summary', 'File content loaded', { 
+                fileSize: fileContent.length,
+                fileName: targetFile.basename
             });
 
-            // Generate summary based on document type
-            const summaryPrompt = this.createSummaryPrompt(enhancedContext);
-            
-            this.log('Summary', 'Generating final summary');
-            const summary = await this.aiService.generateContent(summaryPrompt, enhancedContext);
+            // Create enhanced context
+            const enhancedContext = await this.createEnhancedContext(fileContent, targetFile, context);
+            this.log('Summary', 'Enhanced context created', { 
+                contextType: enhancedContext.metadata?.type,
+                hasKeyPoints: !!enhancedContext.keyPoints,
+                keyPointsCount: enhancedContext.keyPoints?.length
+            });
 
-            this.log('Summary', 'Summary generated successfully', {
+            // Generate summary
+            const summaryPrompt = this.createSummaryPrompt(enhancedContext);
+            this.log('Summary', 'Generating summary', { 
+                promptLength: summaryPrompt.length,
+                contextType: enhancedContext.metadata?.type,
+                prompt: summaryPrompt // Add the actual prompt to logs
+            });
+
+            const summary = await this.aiService.generateContent(summaryPrompt, enhancedContext);
+            this.log('Summary', 'Summary generated', { 
                 summaryLength: summary.length,
-                documentType: enhancedContext.metadata?.type
+                processingTime: Date.now() - new Date(this.lastLogTimestamp).getTime(),
+                content: summary,
+                context: enhancedContext // Add the context sent to the API
             });
 
             return summary;
         } catch (error) {
-            this.log('Error', 'Summary generation failed', { 
-                error: error.message,
-                stack: error.stack
-            });
-            return "I encountered an error while generating the summary. Please try again.";
+            this.log('Error', 'Summary generation failed', { error });
+            return `I encountered an error while summarizing the document: ${error.message}`;
         }
     }
 
     private createSummaryPrompt(context: EnhancedDocumentContext): string {
         const docType = context.metadata?.type || 'general';
         
-        const basePrompt = `Provide a clear and structured summary of this ${docType} document.`;
+        this.log('Summary', 'Creating summary prompt', {
+            documentType: docType,
+            hasKeyPoints: !!context.keyPoints,
+            hasReferences: !!context.references
+        });
+
+        const basePrompt = `Provide a brief and focused summary of this ${docType} document. Focus only on essential information.`;
         
         const typeSpecificPrompts: Record<string, string> = {
             'meeting': `
-Format the summary as follows:
+Format the summary concisely:
 
 Key Decisions:
-[List the main decisions made during the meeting]
+[List ONLY major decisions, max 3]
 
 Action Items:
-[List specific tasks, who they're assigned to, and deadlines]
+[List ONLY critical tasks with owners and deadlines, max 3]
 
 Next Steps:
-[Outline the agreed-upon next steps]
-
-Additional Notes:
-[Include any other important points discussed]`,
+[List ONLY immediate next actions, max 2]`,
 
             'research': `
-Format the summary as follows:
+Format the summary concisely:
 
-Research Objective:
-[State the main research question or objective]
+Key Finding:
+[State the single most important finding]
 
-Key Findings:
-[List the main research findings]
+Main Conclusion:
+[State the primary conclusion]
 
-Methodology:
-[Briefly describe the research approach]
-
-Conclusions:
-[Summarize the main conclusions]
-
-Implications:
-[Note any important implications or recommendations]`,
+Critical Implications:
+[List ONLY major implications, max 2]`,
 
             'technical': `
-Format the summary as follows:
+Format the summary concisely:
 
-Overview:
-[Describe the main technical concept or system]
+Core Concept:
+[One-sentence description of the main technical concept]
 
-Key Components:
-[List the main technical components or features]
+Key Requirements:
+[List ONLY critical requirements, max 3]
 
-Implementation Details:
-[Summarize important technical specifications]
-
-Requirements:
-[List any critical requirements or dependencies]
-
-Recommendations:
-[Include any technical recommendations or best practices]`,
+Essential Dependencies:
+[List ONLY must-have dependencies, max 2]`,
 
             'note': `
-Format the summary as follows:
+Format the summary concisely:
 
 Main Topic:
-[State the primary topic or theme]
+[One-sentence description]
 
 Key Points:
-[List the main points or ideas]
+[List ONLY essential points, max 3]
 
-Important Details:
-[Include any significant details or examples]
-
-Conclusions:
-[Summarize any conclusions or takeaways]`,
+Primary Takeaway:
+[Single most important conclusion]`,
 
             'other': `
-Format the summary as follows:
+Format the summary concisely:
 
 Main Topic:
-[Describe the primary subject matter]
+[One-sentence description]
 
 Key Points:
-[List the main points or arguments]
+[List ONLY essential points, max 3]
 
-Important Details:
-[Include any significant details or evidence]
-
-Conclusions:
-[Summarize the main takeaways]`
+Conclusion:
+[Single most important takeaway]`
         };
 
         const promptTemplate = typeSpecificPrompts[docType] || typeSpecificPrompts['other'];
         
+        this.log('Summary', 'Created prompt', {
+            promptLength: promptTemplate.length,
+            promptType: docType
+        });
+
         return `${basePrompt}
 
 ${promptTemplate}
 
-Important: Focus on providing a clear, direct summary of the content. Use bullet points where appropriate for better readability.`;
+Important: Keep the summary extremely concise. Focus on quality over quantity. Use bullet points for clarity.`;
     }
 
     private async handleCommandIntent(message: string, context: DocumentContext): Promise<string> {
@@ -770,4 +860,166 @@ Important: Focus on providing a clear, direct summary of the content. Use bullet
         this.actionGeneratorService.cleanup();
         this.log('Cleanup', 'ChatAgentService unloaded successfully');
     }
-} 
+
+    private serializeContext(context: DocumentContext | null): string {
+        if (!context) return '';
+        
+        // Create a sanitized version of the context without circular references
+        const sanitizedContext = {
+            previousParagraphs: context.previousParagraphs || [],
+            currentHeading: context.currentHeading,
+            documentStructure: {
+                title: context.documentStructure?.title,
+                headings: context.documentStructure?.headings || []
+            },
+            sourceFile: context.sourceFile ? {
+                basename: context.sourceFile.basename,
+                path: context.sourceFile.path
+            } : null
+        };
+        
+        return JSON.stringify(sanitizedContext);
+    }
+
+    private validateIntentAnalysis(obj: any): obj is IntentAnalysis {
+        return (
+            obj &&
+            typeof obj === 'object' &&
+            ['summarize', 'command', 'question', 'action', 'other'].includes(obj.intent) &&
+            (!obj.subIntent || ['meeting', 'research', 'technical', 'general'].includes(obj.subIntent)) &&
+            typeof obj.confidence === 'number' &&
+            obj.confidence >= 0 &&
+            obj.confidence <= 1 &&
+            typeof obj.entities === 'object' &&
+            typeof obj.requiresContext === 'boolean' &&
+            typeof obj.reasoning === 'string'
+        );
+    }
+
+    private async analyzeIntent(message: string, context?: DocumentContext): Promise<IntentAnalysis> {
+        this.log('Intent', 'Starting intent analysis', {
+            messageLength: message.length,
+            hasContext: !!context
+        });
+
+        const response = await this.aiService.generateContent(
+            this.createIntentAnalysisPrompt(message, context),
+            context,
+            {
+                maxTokens: TOKEN_LIMITS.INTENT,
+                temperature: 0.3,
+                model: this.DEFAULT_MODEL,
+                response_format: { type: "json_object" }
+            }
+        );
+
+        return this.parseIntentResponse(response);
+    }
+
+    private createIntentAnalysisPrompt(message: string, context?: DocumentContext): string {
+        const prompt = `Analyze the intent of this message: "${message}"
+        Current context: ${this.serializeContext(context)}
+        
+        Respond with a JSON object containing:
+        {
+            "intent": "summarize" | "command" | "question" | "action" | "other",
+            "subIntent": "meeting" | "research" | "technical" | "general",
+            "confidence": number,
+            "entities": {
+                "documentType": string,
+                "specificDocument": string,
+                "timeFrame": string,
+                "scope": string
+            },
+            "requiresContext": boolean,
+            "reasoning": string
+        }`;
+        return prompt;
+    }
+
+    private parseIntentResponse(response: string): IntentAnalysis {
+        try {
+            const analysis = JSON.parse(response);
+            if (this.validateIntentAnalysis(analysis)) {
+                return analysis;
+            } else {
+                this.log('Intent', 'Invalid analysis format', { analysis });
+                return this.getFallbackIntentAnalysis();
+            }
+        } catch (error) {
+            this.log('Error', 'Failed to parse intent analysis', { error, response });
+            return this.getFallbackIntentAnalysis();
+        }
+    }
+
+    private async retryIntentAnalysis(
+        message: string,
+        context: DocumentContext,
+        attempt = 1
+    ): Promise<IntentAnalysis> {
+        if (attempt > 3) {
+            this.log('Intent', 'Max retries reached, using fallback');
+            return this.getFallbackIntentAnalysis();
+        }
+
+        this.log('Intent', `Retrying intent analysis (attempt ${attempt})`);
+
+        try {
+            const response = await this.aiService.generateContent(
+                `IMPORTANT: Analyze this message and return a valid JSON object matching this structure exactly:
+                {
+                    "intent": "summarize" | "command" | "question" | "action" | "other",
+                    "subIntent": "meeting" | "research" | "technical" | "general",
+                    "confidence": number,
+                    "entities": {
+                        "documentType": string,
+                        "specificDocument": string,
+                        "timeFrame": string,
+                        "scope": string
+                    },
+                    "requiresContext": boolean,
+                    "reasoning": string
+                }
+
+                Message: "${message}"
+                ${context ? `Context: ${this.serializeContext(context)}` : ''}`,
+                context,
+                { response_format: { type: "json_object" } }
+            );
+
+            const analysis = JSON.parse(response);
+            if (this.validateIntentAnalysis(analysis)) {
+                this.log('Intent', 'Retry successful', { 
+                    attempt,
+                    intent: analysis.intent,
+                    confidence: analysis.confidence
+                });
+                return analysis;
+            }
+            
+            this.log('Intent', 'Invalid analysis format in retry', { 
+                attempt,
+                analysis
+            });
+            return await this.retryIntentAnalysis(message, context, attempt + 1);
+        } catch (error) {
+            this.log('Error', `Intent analysis retry ${attempt} failed`, { error });
+            return await this.retryIntentAnalysis(message, context, attempt + 1);
+        }
+    }
+
+    private getFallbackIntentAnalysis(): IntentAnalysis {
+        return {
+            intent: 'other',
+            confidence: 0.5,
+            entities: {
+                documentType: '',
+                specificDocument: '',
+                timeFrame: '',
+                scope: ''
+            },
+            requiresContext: false,
+            reasoning: 'Fallback due to analysis failure'
+        };
+    }
+}
