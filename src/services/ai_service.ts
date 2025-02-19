@@ -132,23 +132,27 @@ export class AIService {
      * Analyzes the query to determine if it references a specific note
      * Uses LLM to understand the user's intent and find relevant notes
      */
-    private async detectReferencedNote(query: string): Promise<TFile | null> {
+    async detectReferencedNote(query: string): Promise<TFile | null> {
         const files = this.app.vault.getMarkdownFiles();
-        
-        try {
-            // First, use LLM to understand what the user is looking for
-            const intentResponse = await this.makeAIRequest({
-                prompt: `Given this user request: "${query}"
-Please analyze if the user is asking about a specific note or document.
-If yes, extract key details about what note they're looking for.
-If no, explain why not.
 
-Return a JSON object with this structure:
+        try {
+            // 1. LLM for Intent and Description Extraction
+            const intentResponse = await this.makeAIRequest({
+                prompt: `Analyze the user's request: "${query}". Determine if they are referring to a specific note.
+If so, extract key details: title keywords, topic, date, people mentioned.
+If not, explain why.
+
+Return JSON:
 {
-    "isRequestingNote": boolean,
-    "noteDescription": string or null,
-    "confidence": number (0-1),
-    "reasoning": string
+  "isRequestingNote": boolean,
+  "noteDescription": {
+    "titleKeywords": string[] | null,
+    "topic": string | null,
+    "date": string | null,
+    "people": string[] | null
+  },
+  "confidence": number (0-1),
+  "reasoning": string
 }`,
                 maxTokens: 200,
                 temperature: 0.3,
@@ -157,71 +161,82 @@ Return a JSON object with this structure:
 
             const intent = this.safeJSONParse<{
                 isRequestingNote: boolean;
-                noteDescription: string | null;
+                noteDescription: {
+                    titleKeywords: string[] | null;
+                    topic: string | null;
+                    date: string | null;
+                    people: string[] | null;
+                };
                 confidence: number;
                 reasoning: string;
             }>(intentResponse.choices[0]?.message?.content || '');
-            
+
             if (!intent || !intent.isRequestingNote || intent.confidence < 0.6) {
                 return null;
             }
 
-            // If user is looking for a note, get the most relevant files
-            const relevantFiles: Array<{file: TFile; relevance: number}> = [];
-            
-            for (const file of files) {
-                try {
-                    const content = await this.app.vault.cachedRead(file);
-                    
-                    // Use LLM to evaluate file relevance
-                    const relevanceResponse = await this.makeAIRequest({
-                        prompt: `Analyze if this content is likely to be meeting notes.
-                        Consider factors like:
-                        - Presence of meeting-related keywords (agenda, attendees, discussion)
-                        - Document structure (headings for sections like "Action Items", "Decisions")
-                        - Content format (date, time, participant list)
-                        
-                        Content: "${content.slice(0, 500)}..."
-                        
-                        Respond with JSON:
-                        {
-                            "isMeetingNotes": boolean,
-                            "confidence": number (0-1),
-                            "relevanceScore": number (0-1),
-                            "reasoning": string
-                        }`,
-                        maxTokens: 100,
-                        temperature: 0.2,
-                        response_format: { type: "json_object" }
-                    });
+            const { noteDescription } = intent;
+            let bestMatch: { file: TFile; score: number } | null = null;
 
-                    const relevance = this.safeJSONParse<{
-                        isMeetingNotes: boolean;
-                        confidence: number;
-                        relevanceScore: number;
-                        reasoning: string;
-                    }>(relevanceResponse.choices[0]?.message?.content || '');
-                    
-                    if (relevance && relevance.isMeetingNotes && relevance.confidence > 0.7) {
-                        relevantFiles.push({
-                            file,
-                            relevance: relevance.relevanceScore
-                        });
+            // 2. Iterate and Score Files
+            for (const file of files) {
+                let score = 0;
+                const fileName = file.basename.toLowerCase();
+
+                // Title Keywords
+                if (noteDescription.titleKeywords) {
+                    const matchingKeywords = noteDescription.titleKeywords.filter(keyword =>
+                        fileName.includes(keyword.toLowerCase())
+                    );
+                    score += matchingKeywords.length * 0.5; // Significant weight
+                }
+
+                // Topic (using content)
+                if (noteDescription.topic) {
+                    const content = await this.app.vault.cachedRead(file);
+                    if (content.toLowerCase().includes(noteDescription.topic.toLowerCase())) {
+                        score += 0.4; // Moderate weight
                     }
-                } catch (error) {
-                    console.warn(`Failed to analyze file ${file.path}:`, error);
+                }
+
+                // Date (Prioritize modification date)
+                if (noteDescription.date) {
+                    const requestedDate = new Date(noteDescription.date);
+                    const fileDate = new Date(file.stat.mtime);
+
+                    // Check if the file was modified on the requested date
+                    if (
+                        fileDate.getFullYear() === requestedDate.getFullYear() &&
+                        fileDate.getMonth() === requestedDate.getMonth() &&
+                        fileDate.getDate() === requestedDate.getDate()
+                    ) {
+                        score += 0.8; // Very high weight
+                    }
+                }
+
+                // People (using content)
+                if (noteDescription.people) {
+                    const content = await this.app.vault.cachedRead(file);
+                    const matchingPeople = noteDescription.people.filter(person =>
+                        content.toLowerCase().includes(person.toLowerCase())
+                    );
+                    score += matchingPeople.length * 0.3; // Moderate weight
+                }
+
+                // Update best match
+                if (bestMatch === null || score > bestMatch.score) {
+                    bestMatch = { file, score };
                 }
             }
 
-            // Sort by relevance and return the most relevant file
-            if (relevantFiles.length > 0) {
-                relevantFiles.sort((a, b) => b.relevance - a.relevance);
-                return relevantFiles[0].file;
+            // Return best match if above a threshold
+            if (bestMatch && bestMatch.score > 0.5) {
+                return bestMatch.file;
             }
         } catch (error) {
             console.error('Error in semantic note detection:', error);
         }
-        
+
         return null;
     }
 
@@ -830,14 +845,52 @@ Content preview: ${note.content.slice(0, 500)}...`;
 
     /**
      * Find notes relevant to the user's query using semantic relevance scoring
+     * and date-based prioritization
      */
     private async findRelevantNotes(query: string): Promise<Array<{ content: string; file: TFile; relevance: number }>> {
         const files = this.app.vault.getMarkdownFiles();
         const relevantNotes: Array<{ content: string; file: TFile; relevance: number }> = [];
 
-        // First pass: Quick filter using metadata cache
+        // 1. Extract Date (if any) and Prioritize
+        const dateMatch = await this.extractDate(query);
+        let targetDate: Date | null = null;
+        if (dateMatch?.date) {
+            try {
+                targetDate = new Date(dateMatch.date);
+                if (targetDate && !isNaN(targetDate.getTime())) {
+                    this.log('FileMatch', 'Searching for notes near date', { date: targetDate.toISOString() });
+                    const datedFiles = files
+                        .map(file => ({ file, diff: Math.abs(targetDate.getTime() - file.stat.mtime) }))
+                        .sort((a, b) => a.diff - b.diff);
+
+                    // Process the closest 10 files by modification date
+                    for (const { file, diff } of datedFiles.slice(0, 10)) {
+                        const content = await this.app.vault.cachedRead(file);
+                        const relevance = await this.calculateDetailedRelevance(content, query);
+                        if (relevance > 0.5) {
+                            // Add date proximity bonus (up to 0.2)
+                            const diffDays = diff / (1000 * 60 * 60 * 24);
+                            const dateBonus = diffDays <= 1 ? 0.2 : // Same day
+                                            diffDays <= 7 ? 0.1 : // Within a week
+                                            0;
+                            relevantNotes.push({ 
+                                content, 
+                                file, 
+                                relevance: relevance + dateBonus 
+                            });
+                        }
+                    }
+                    if (relevantNotes.length > 0) {
+                        return relevantNotes.sort((a, b) => b.relevance - a.relevance);
+                    }
+                }
+            } catch (error) {
+                console.warn("Invalid date format", error);
+            }
+        }
+
+        // 2. If no date-based matches, proceed with metadata-based search
         const potentialMatches: Array<{ file: TFile; initialScore: number }> = [];
-        
         for (const file of files) {
             const cache = this.app.metadataCache.getFileCache(file);
             if (!cache) continue;
@@ -848,20 +901,21 @@ Content preview: ${note.content.slice(0, 500)}...`;
             }
         }
 
-        // Sort potential matches by initial score and take top N
         potentialMatches.sort((a, b) => b.initialScore - a.initialScore);
-        const topMatches = potentialMatches.slice(0, 10); // Limit detailed analysis to top 10 matches
+        const topMatches = potentialMatches.slice(0, 10);
 
-        // Second pass: Detailed content analysis
+        // 3. Detailed content analysis for top matches
         for (const match of topMatches) {
             const content = await this.app.vault.read(match.file);
             const relevanceScore = await this.calculateDetailedRelevance(content, query);
-            
-            if (relevanceScore > 0.5) { // Only include if relevance is above threshold
+
+            if (relevanceScore > 0.5) {
+                // Add recency bonus (up to 0.1)
+                const recencyBonus = this.isRecentlyModified(match.file) ? 0.1 : 0;
                 relevantNotes.push({
                     content,
                     file: match.file,
-                    relevance: relevanceScore
+                    relevance: relevanceScore + recencyBonus
                 });
             }
         }
@@ -1366,5 +1420,25 @@ Consider:
         }
 
         return 0;
+    }
+
+    /**
+     * Extracts a date from the given text using LLM analysis
+     */
+    public async extractDate(text: string): Promise<{ date: string; confidence: number } | null> {
+        try {
+            const response = await this.makeAIRequest({
+                prompt: `Extract the date from the following text. Return ONLY a JSON object with the format {"date": "YYYY-MM-DD", "confidence": number (0-1)}. If no date is found, return {"date": null, "confidence": 0}.
+                Text: ${text}`,
+                response_format: { type: "json_object" },
+                maxTokens: 50,
+                temperature: 0.1 // Low temperature for structured output
+            });
+
+            return this.safeJSONParse<{ date: string; confidence: number }>(response.choices[0]?.message?.content || '');
+        } catch (error) {
+            console.error("Error extracting date:", error);
+            return null;
+        }
     }
 }

@@ -9,10 +9,17 @@ export class FileNavigationService {
 
     async readFileContent(file: TFile): Promise<string> {
         try {
-            return await this.app.vault.read(file);
+            // First try to use cached read for better performance
+            try {
+                return await this.app.vault.cachedRead(file);
+            } catch (cachedError) {
+                console.warn(`Cached read failed for ${file.path}, falling back to direct read:`, cachedError);
+                // Fall back to direct read
+                return await this.app.vault.read(file);
+            }
         } catch (error) {
             console.error(`Error reading file ${file.path}:`, error);
-            throw error;
+            throw new Error(`Unable to read file ${file.basename}: ${error.message}`);
         }
     }
 
