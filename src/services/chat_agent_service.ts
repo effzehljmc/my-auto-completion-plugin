@@ -1,4 +1,4 @@
-import { App, TFile } from 'obsidian';
+import { App, TFile, TFolder } from 'obsidian';
 import { AIService } from './ai_service';
 import { CommandService } from './command_service';
 import { FileNavigationService } from './file_navigation_service';
@@ -38,13 +38,21 @@ interface DocumentAnalysis {
 }
 
 interface QueryIntent {
-    queryType: 'summary' | 'question' | 'search' | 'create' | 'general' | 'format';
+    queryType: 'summary' | 'question' | 'search' | 'create' | 'rename' | 'format' | 'move' | 'style' | 'general';
     documentType: 'meeting' | 'research' | 'technical' | 'note' | 'other';
     confidence: number;
     expectedMetadata: {
         topic: string;
         keywords?: string[];
         category?: string;
+        newName?: string | null;
+        targetFolder?: string | null;
+        styleAction?: 'citations' | 'toc' | 'sections' | 'frontmatter' | 'all' | null;
+        styleOptions?: {
+            citationStyle?: string;
+            tocDepth?: number;
+            frontmatterFields?: string[];
+        };
     };
 }
 
@@ -128,11 +136,12 @@ export class ChatAgentService {
         this.log('Init', 'Services initialized successfully');
     }
 
-    private async findRelevantDocument(
+    private async findRelevantDocuments(
         message: string,
-        context?: DocumentContext
-    ): Promise<{ content: string; file: TFile; type: string } | null> {
-        this.log('Search', 'Looking for relevant document', { query: message });
+        context?: DocumentContext,
+        maxResults = 5
+    ): Promise<Array<{ content: string; file: TFile; type: string; relevance: number }>> {
+        this.log('Search', 'Looking for relevant documents', { query: message, maxResults });
         
         try {
             // Get all markdown files
@@ -146,7 +155,7 @@ export class ChatAgentService {
 
             if (candidates.length === 0) {
                 this.log('Search', 'No candidate files found');
-                return null;
+                return [];
             }
 
             // Sort candidates by initial relevance
@@ -155,8 +164,10 @@ export class ChatAgentService {
                 this.calculateInitialScore(a.basename, message)
             );
 
+            const results: Array<{ content: string; file: TFile; type: string; relevance: number }> = [];
+
             // Analyze top candidates in detail
-            const maxCandidates = 3; // Limit detailed analysis to top 3 candidates
+            const maxCandidates = Math.min(10, sortedCandidates.length); // Analyze up to 10 candidates
             for (const file of sortedCandidates.slice(0, maxCandidates)) {
                 try {
                     const content = await this.fileNavigationService.readFileContent(file);
@@ -193,7 +204,7 @@ export class ChatAgentService {
 
                     const analysis: DocumentAnalysis = JSON.parse(analysisResult);
 
-                    if (analysis.relevanceScore > 0.7 && analysis.confidence > 0.7) {
+                    if (analysis.relevanceScore > 0.5) { // Lower threshold for multiple results
                         this.log('Search', 'Found relevant document', {
                             file: file.basename,
                             type: analysis.documentType,
@@ -209,26 +220,31 @@ export class ChatAgentService {
                             customFields: {}
                         });
 
-                        return {
+                        results.push({
                             content,
                             file,
-                            type: analysis.documentType
-                        };
+                            type: analysis.documentType,
+                            relevance: analysis.relevanceScore
+                        });
+
+                        if (results.length >= maxResults) {
+                            break;
+                        }
                     }
                 } catch (error) {
                     this.log('Error', 'Error analyzing candidate', { 
                         error,
                         file: file.basename 
                     });
-                    continue; // Continue with next candidate if one fails
+                    continue;
                 }
             }
 
-            this.log('Search', 'No relevant documents found after analysis');
-            return null;
+            // Sort results by relevance
+            return results.sort((a, b) => b.relevance - a.relevance);
         } catch (error) {
-            this.log('Error', 'Error finding relevant document', { error });
-            return null;
+            this.log('Error', 'Error finding relevant documents', { error });
+            return [];
         }
     }
 
@@ -275,13 +291,21 @@ ${end}`.slice(0, 1500); // Limit sample size
             
             Return a JSON object:
             {
-                "queryType": "summary" | "question" | "search" | "create" | "general" | "format",
+                "queryType": "summary" | "question" | "search" | "create" | "rename" | "move" | "style" | "format" | "general",
                 "documentType": "meeting" | "research" | "technical" | "note" | "other",
                 "confidence": number (0-1),
                 "expectedMetadata": {
                     "topic": string,
                     "keywords": string[],
-                    "category": string
+                    "category": string,
+                    "newName": string | null,
+                    "targetFolder": string | null,
+                    "styleAction": "citations" | "toc" | "sections" | "frontmatter" | "all" | null,
+                    "styleOptions": {
+                        "citationStyle": string | null,
+                        "tocDepth": number | null,
+                        "frontmatterFields": string[] | null
+                    }
                 }
             }
             
@@ -290,8 +314,13 @@ ${end}`.slice(0, 1500); // Limit sample size
             - "what did we discuss about AI research?" -> question + research
             - "find documents about project planning" -> search + technical
             - "create a new note about machine learning basics" -> create + research
-            - "format this note" -> format + note
-            `;
+            - "rename document X to Y" -> rename + type of document
+            - "move this note to the research folder" -> move + note
+            - "add citations to this document" -> style + note (styleAction: "citations")
+            - "create a table of contents" -> style + note (styleAction: "toc")
+            - "organize content into sections" -> style + note (styleAction: "sections")
+            - "add YAML frontmatter" -> style + note (styleAction: "frontmatter")
+            - "format this note" -> format + note`;
 
             const analysisResult = await this.aiService.generateContent(
                 prompt,
@@ -299,7 +328,7 @@ ${end}`.slice(0, 1500); // Limit sample size
                 { response_format: { type: "json_object" } }
             );
 
-            const analysis: QueryIntent = JSON.parse(analysisResult);
+            const analysis = JSON.parse(analysisResult);
             return analysis;
         } catch (error) {
             this.log('Error', 'Error analyzing query intent', { error });
@@ -528,29 +557,29 @@ Return a JSON object:
             });
 
             // Try to find a relevant document based on the message
-            const relevantDoc = await this.findRelevantDocument(message, context);
+            const relevantDoc = await this.findRelevantDocuments(message, context);
             
             // Create or update context with the found document
-            if (relevantDoc) {
-                this.log('Process', 'Found relevant document', { 
-                    file: relevantDoc.file.basename,
-                    type: relevantDoc.type,
-                    matchedFrom: context?.sourceFile === relevantDoc.file ? 'context' : 'search'
+            if (relevantDoc.length > 0) {
+                this.log('Process', 'Found relevant documents', { 
+                    files: relevantDoc.map(doc => doc.file.basename),
+                    types: relevantDoc.map(doc => doc.type),
+                    matchedFrom: context?.sourceFile ? 'context' : 'search'
                 });
                 
                 context = {
                     previousParagraphs: [],
                     currentHeading: '',
                     documentStructure: {
-                        title: relevantDoc.file.basename,
+                        title: relevantDoc[0].file.basename,
                         headings: []
                     },
-                    sourceFile: relevantDoc.file,
-                    content: relevantDoc.content,
-                    currentParagraph: relevantDoc.content
+                    sourceFile: relevantDoc[0].file,
+                    content: relevantDoc[0].content,
+                    currentParagraph: relevantDoc[0].content
                 };
             } else {
-                this.log('Process', 'No relevant document found for query');
+                this.log('Process', 'No relevant documents found for query');
             }
 
             // Handle different types of intents with the updated context
@@ -600,6 +629,33 @@ Return a JSON object:
                             headings: []
                         }
                     }, queryIntent);
+                case 'rename':
+                    return this.handleRenameIntent(message, context || {
+                        previousParagraphs: [],
+                        currentHeading: '',
+                        documentStructure: {
+                            title: '',
+                            headings: []
+                        }
+                    }, queryIntent);
+                case 'move':
+                    return this.handleMoveIntent(message, context || {
+                        previousParagraphs: [],
+                        currentHeading: '',
+                        documentStructure: {
+                            title: '',
+                            headings: []
+                        }
+                    }, queryIntent);
+                case 'style':
+                    return this.handleStyleIntent(message, context || {
+                        previousParagraphs: [],
+                        currentHeading: '',
+                        documentStructure: {
+                            title: '',
+                            headings: []
+                        }
+                    }, queryIntent);
                 default:
                     return this.handleGeneralIntent(message, context || {
                         previousParagraphs: [],
@@ -628,12 +684,18 @@ Return a JSON object:
         });
 
         try {
-            const relevantDoc = await this.findRelevantDocument(message, context);
-            if (!relevantDoc) {
+            const relevantDocs = await this.findRelevantDocuments(message, context);
+            if (relevantDocs.length === 0) {
                 return "I couldn't find any relevant documents matching your search.";
             }
 
-            return `I found a relevant ${relevantDoc.type} document: "${relevantDoc.file.basename}". Would you like me to summarize it or answer specific questions about it?`;
+            // Format results into a clear response
+            const formattedResults = relevantDocs.map((doc, index) => {
+                const relevancePercent = Math.round(doc.relevance * 100);
+                return `${index + 1}. [[${doc.file.basename}]] (${doc.type}, ${relevancePercent}% relevant)`;
+            }).join('\n');
+
+            return `I found ${relevantDocs.length} relevant document${relevantDocs.length > 1 ? 's' : ''}:\n\n${formattedResults}\n\nWould you like me to summarize any of these documents or answer specific questions about them?`;
         } catch (error) {
             this.log('Error', 'Error handling search intent', { error });
             return `I encountered an error while searching: ${error.message}`;
@@ -834,5 +896,240 @@ Provide a clear and specific answer based on the document content. If the answer
             console.error('Error formatting note:', error);
             return "I encountered an error while trying to format the note. Please try again or check the console for details.";
         }
+    }
+
+    private async handleRenameIntent(
+        message: string,
+        context: DocumentContext,
+        intent: QueryIntent
+    ): Promise<string> {
+        this.log('Rename', 'Handling rename intent', { 
+            message,
+            hasContext: !!context,
+            intent: intent.documentType
+        });
+
+        try {
+            if (!context?.sourceFile) {
+                return "I couldn't find the file you want to rename. Could you specify which file you'd like to rename?";
+            }
+
+            const newName = intent.expectedMetadata.newName;
+            if (!newName) {
+                return "I couldn't determine the new name for the file. Could you please specify the new name clearly?";
+            }
+
+            // Ensure the new name has a .md extension
+            const newNameWithExtension = newName.endsWith('.md') ? newName : `${newName}.md`;
+
+            try {
+                // Use Obsidian's API to rename the file
+                await this.app.fileManager.renameFile(
+                    context.sourceFile,
+                    `${newNameWithExtension}`
+                );
+
+                return `I've renamed the file to "${newName}".`;
+            } catch (renameError) {
+                this.log('Error', 'Failed to rename file', { error: renameError });
+                return `I encountered an error while trying to rename the file: ${renameError.message}`;
+            }
+        } catch (error) {
+            this.log('Error', 'Error handling rename intent', { error });
+            return `I encountered an error: ${error.message}`;
+        }
+    }
+
+    private async handleMoveIntent(
+        message: string,
+        context: DocumentContext,
+        intent: QueryIntent
+    ): Promise<string> {
+        this.log('Move', 'Handling move intent', { 
+            message,
+            hasContext: !!context,
+            intent: intent.documentType
+        });
+
+        try {
+            if (!context?.sourceFile) {
+                return "I couldn't find the file you want to move. Could you specify which file you'd like to move?";
+            }
+
+            const targetFolder = intent.expectedMetadata.targetFolder;
+            if (!targetFolder) {
+                return "I couldn't determine which folder to move the file to. Could you please specify the target folder?";
+            }
+
+            try {
+                // Get all folders in the vault
+                const folders = this.app.vault.getAllLoadedFiles()
+                    .filter((f): f is TFolder => f instanceof TFolder)
+                    .map(f => f.path);
+
+                // Find the best matching folder
+                const normalizedTarget = targetFolder.toLowerCase();
+                const matchingFolder = folders.find(f => 
+                    f.toLowerCase().includes(normalizedTarget) ||
+                    f.toLowerCase().split('/').pop() === normalizedTarget
+                );
+
+                if (!matchingFolder) {
+                    // If folder doesn't exist, create it
+                    const newFolderPath = targetFolder;
+                    try {
+                        await this.app.vault.createFolder(newFolderPath);
+                        this.log('Move', 'Created new folder', { path: newFolderPath });
+                    } catch (folderError) {
+                        this.log('Error', 'Failed to create folder', { error: folderError });
+                        return `I couldn't create the folder "${targetFolder}". The folder might already exist or there might be permission issues.`;
+                    }
+                }
+
+                // Construct the new path
+                const newPath = `${matchingFolder || targetFolder}/${context.sourceFile.name}`;
+
+                // Move the file using renameFile (which also handles moving)
+                await this.app.fileManager.renameFile(
+                    context.sourceFile,
+                    newPath
+                );
+
+                return `I've moved "${context.sourceFile.basename}" to the ${targetFolder} folder.`;
+            } catch (moveError) {
+                this.log('Error', 'Failed to move file', { error: moveError });
+                return `I encountered an error while trying to move the file: ${moveError.message}`;
+            }
+        } catch (error) {
+            this.log('Error', 'Error handling move intent', { error });
+            return `I encountered an error: ${error.message}`;
+        }
+    }
+
+    private async handleStyleIntent(
+        message: string,
+        context: DocumentContext,
+        intent: QueryIntent
+    ): Promise<string> {
+        this.log('Style', 'Handling style intent', { 
+            message,
+            hasContext: !!context,
+            intent: intent.documentType,
+            styleAction: intent.expectedMetadata.styleAction
+        });
+
+        try {
+            if (!context?.sourceFile) {
+                return "I couldn't find the file you want to style. Could you specify which file you'd like to modify?";
+            }
+
+            const content = await this.app.vault.read(context.sourceFile);
+            let modifiedContent = content;
+            const styleAction = intent.expectedMetadata.styleAction;
+
+            switch (styleAction) {
+                case 'citations':
+                    modifiedContent = await this.addCitations(content);
+                    break;
+                case 'toc':
+                    modifiedContent = await this.addTableOfContents(content, intent.expectedMetadata.styleOptions?.tocDepth);
+                    break;
+                case 'sections':
+                    modifiedContent = await this.organizeSections(content);
+                    break;
+                case 'frontmatter':
+                    modifiedContent = await this.addFrontmatter(content, intent.expectedMetadata.styleOptions?.frontmatterFields);
+                    break;
+                case 'all':
+                    modifiedContent = await this.applyAllStyles(content);
+                    break;
+                default:
+                    return "I'm not sure what kind of styling you'd like me to apply. Could you specify if you want citations, table of contents, sections, or frontmatter?";
+            }
+
+            // Update the file with the modified content
+            await this.app.vault.modify(context.sourceFile, modifiedContent);
+
+            // Open the styled file
+            const leaf = this.app.workspace.getLeaf();
+            await leaf.openFile(context.sourceFile);
+
+            const actionMap = {
+                'citations': 'added proper citations to',
+                'toc': 'added a table of contents to',
+                'sections': 'organized the content into sections in',
+                'frontmatter': 'added YAML frontmatter to',
+                'all': 'applied all styling improvements to'
+            };
+
+            return `I've ${actionMap[styleAction] || 'styled'} "${context.sourceFile.basename}". The file is now open for your review.`;
+        } catch (error) {
+            this.log('Error', 'Error handling style intent', { error });
+            return `I encountered an error: ${error.message}`;
+        }
+    }
+
+    private async addCitations(content: string): Promise<string> {
+        const prompt = `Add proper academic citations to this document. Identify references and add citations in a consistent format.
+        Original content:
+        ${content}
+        
+        Return the content with proper citations added. Use a consistent citation style and add a References section at the end.`;
+
+        return this.aiService.generateContent(prompt);
+    }
+
+    private async addTableOfContents(content: string, depth = 3): Promise<string> {
+        const prompt = `Create a table of contents for this document and add it after the frontmatter (if any) and before the main content.
+        Maximum heading depth: ${depth}
+        Original content:
+        ${content}
+        
+        Return the content with a properly formatted table of contents added.`;
+
+        return this.aiService.generateContent(prompt);
+    }
+
+    private async organizeSections(content: string): Promise<string> {
+        const prompt = `Organize this content into logical sections with proper headings and structure.
+        Original content:
+        ${content}
+        
+        Return the content organized into clear sections with appropriate heading levels and consistent formatting.`;
+
+        return this.aiService.generateContent(prompt);
+    }
+
+    private async addFrontmatter(content: string, fields?: string[]): Promise<string> {
+        const defaultFields = ['title', 'date', 'tags', 'type', 'status'];
+        const targetFields = fields || defaultFields;
+
+        const prompt = `Add YAML frontmatter to this document including these fields: ${targetFields.join(', ')}.
+        Extract relevant information from the content where possible.
+        Original content:
+        ${content}
+        
+        Return the content with proper YAML frontmatter added at the top.`;
+
+        return this.aiService.generateContent(prompt);
+    }
+
+    private async applyAllStyles(content: string): Promise<string> {
+        // Apply all styling improvements in a specific order
+        let modifiedContent = content;
+        
+        // 1. First add frontmatter (if not present)
+        modifiedContent = await this.addFrontmatter(modifiedContent);
+        
+        // 2. Then organize into sections
+        modifiedContent = await this.organizeSections(modifiedContent);
+        
+        // 3. Add table of contents after frontmatter
+        modifiedContent = await this.addTableOfContents(modifiedContent);
+        
+        // 4. Finally add citations
+        modifiedContent = await this.addCitations(modifiedContent);
+        
+        return modifiedContent;
     }
 }

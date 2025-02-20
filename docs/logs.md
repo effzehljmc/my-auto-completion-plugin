@@ -1,23 +1,17 @@
-app.js:1 Obsidian Developer Console
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:57:38.995Z] [ChatAgent] [Init] Initializing ChatAgentService undefined
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:57:38.997Z] [ChatAgent] [Init] Setting up services undefined
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:57:38.998Z] [ChatAgent] [Init] Services initialized successfully undefined
-plugin:my-auto-completion-plugin:78943 SuggestionPopup.isVisible Object
-plugin:my-auto-completion-plugin:78723 SuggestionPopup.close Object
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:57:59.206Z] [ChatAgent] [Process] Starting message processing Object
-plugin:my-auto-completion-plugin:80550 🤖 [2025-02-19T20:57:59.206Z] [AI] [API] Making API request
+[2025-02-20T02:16:43.388Z] [ChatAgent] [Process] Starting message processing Object
+plugin:my-auto-completion-plugin:80632 🤖 [2025-02-20T02:16:43.389Z] [AI] [API] Making API request
 Details: {
   "endpoint": "https://api.openai.com/v1/chat/completions",
-  "requestSize": 2169
+  "requestSize": 3503
 }
-plugin:my-auto-completion-plugin:80550 🤖 [2025-02-19T20:58:02.107Z] [AI] [API] API request successful
+plugin:my-auto-completion-plugin:80632 🤖 [2025-02-20T02:16:46.431Z] [AI] [API] API request successful
 Details: {
-  "responseSize": 847,
+  "responseSize": 1166,
   "model": "gpt-4o-2024-08-06",
   "usage": {
-    "prompt_tokens": 394,
-    "completion_tokens": 67,
-    "total_tokens": 461,
+    "prompt_tokens": 648,
+    "completion_tokens": 129,
+    "total_tokens": 777,
     "prompt_tokens_details": {
       "cached_tokens": 0,
       "audio_tokens": 0
@@ -30,21 +24,19 @@ Details: {
     }
   }
 }
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:58:02.108Z] [ChatAgent] [Process] Query intent analyzed Object
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:58:02.108Z] [ChatAgent] [Search] Looking for relevant document Object
-plugin:my-auto-completion-plugin:80550 🤖 [2025-02-19T20:58:02.110Z] [AI] [API] Making API request
+plugin:my-auto-completion-plugin:80632 🤖 [2025-02-20T02:16:46.431Z] [AI] [API] Making API request
 Details: {
   "endpoint": "https://api.openai.com/v1/chat/completions",
-  "requestSize": 2255
+  "requestSize": 4497
 }
-plugin:my-auto-completion-plugin:80550 🤖 [2025-02-19T20:58:04.664Z] [AI] [API] API request successful
+plugin:my-auto-completion-plugin:80632 🤖 [2025-02-20T02:16:48.392Z] [AI] [API] API request successful
 Details: {
-  "responseSize": 1050,
+  "responseSize": 860,
   "model": "gpt-4o-2024-08-06",
   "usage": {
-    "prompt_tokens": 419,
-    "completion_tokens": 111,
-    "total_tokens": 530,
+    "prompt_tokens": 834,
+    "completion_tokens": 69,
+    "total_tokens": 903,
     "prompt_tokens_details": {
       "cached_tokens": 0,
       "audio_tokens": 0
@@ -57,19 +49,24 @@ Details: {
     }
   }
 }
-plugin:my-auto-completion-plugin:80550 🤖 [2025-02-19T20:58:04.665Z] [AI] [API] Making API request
+plugin:my-auto-completion-plugin:81559 🤖 [2025-02-20T02:16:48.392Z] [ChatAgent] [Process] Query intent analyzed Object
+plugin:my-auto-completion-plugin:81559 🤖 [2025-02-20T02:16:48.392Z] [ChatAgent] [Search] Looking for relevant document Object
+plugin:my-auto-completion-plugin:81559 🤖 [2025-02-20T02:16:48.395Z] [ChatAgent] [Search] Using document from current context Object
+plugin:my-auto-completion-plugin:81559 🤖 [2025-02-20T02:16:48.395Z] [ChatAgent] [Process] Found relevant document Object
+plugin:my-auto-completion-plugin:81559 🤖 [2025-02-20T02:16:48.395Z] [ChatAgent] [Create] Handling create intent Object
+plugin:my-auto-completion-plugin:80632 🤖 [2025-02-20T02:16:48.395Z] [AI] [API] Making API request
 Details: {
   "endpoint": "https://api.openai.com/v1/chat/completions",
-  "requestSize": 2283
+  "requestSize": 4030
 }
-plugin:my-auto-completion-plugin:80550 🤖 [2025-02-19T20:58:06.588Z] [AI] [API] API request successful
+plugin:my-auto-completion-plugin:80632 🤖 [2025-02-20T02:16:51.417Z] [AI] [API] API request successful
 Details: {
-  "responseSize": 959,
+  "responseSize": 1289,
   "model": "gpt-4o-2024-08-06",
   "usage": {
-    "prompt_tokens": 426,
-    "completion_tokens": 91,
-    "total_tokens": 517,
+    "prompt_tokens": 755,
+    "completion_tokens": 140,
+    "total_tokens": 895,
     "prompt_tokens_details": {
       "cached_tokens": 0,
       "audio_tokens": 0
@@ -82,22 +79,19 @@ Details: {
     }
   }
 }
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:58:06.588Z] [ChatAgent] [Search] No relevant documents found after analysis undefined
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:58:06.588Z] [ChatAgent] [Process] No relevant document found for query undefined
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:58:06.588Z] [ChatAgent] [Create] Handling create intent Object
-plugin:my-auto-completion-plugin:80550 🤖 [2025-02-19T20:58:06.588Z] [AI] [API] Making API request
+plugin:my-auto-completion-plugin:80632 🤖 [2025-02-20T02:16:51.417Z] [AI] [API] Making API request
 Details: {
   "endpoint": "https://api.openai.com/v1/chat/completions",
-  "requestSize": 1536
+  "requestSize": 4397
 }
-plugin:my-auto-completion-plugin:80550 🤖 [2025-02-19T20:58:14.204Z] [AI] [API] API request successful
+plugin:my-auto-completion-plugin:80632 🤖 [2025-02-20T02:16:57.609Z] [AI] [API] API request successful
 Details: {
-  "responseSize": 2268,
+  "responseSize": 2603,
   "model": "gpt-4o-2024-08-06",
   "usage": {
-    "prompt_tokens": 292,
-    "completion_tokens": 337,
-    "total_tokens": 629,
+    "prompt_tokens": 842,
+    "completion_tokens": 372,
+    "total_tokens": 1214,
     "prompt_tokens_details": {
       "cached_tokens": 0,
       "audio_tokens": 0
@@ -110,28 +104,28 @@ Details: {
     }
   }
 }
-plugin:my-auto-completion-plugin:78943 SuggestionPopup.isVisible Object
-plugin:my-auto-completion-plugin:78723 SuggestionPopup.close Object
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:58:14.214Z] [ChatAgent] [FileEvent] File opened Object
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:58:14.256Z] [ChatAgent] [Create] Created new note Object
-plugin:my-auto-completion-plugin:78943 SuggestionPopup.isVisible Object
-plugin:my-auto-completion-plugin:78723 SuggestionPopup.close Object
-plugin:my-auto-completion-plugin:78943 SuggestionPopup.isVisible Object
-plugin:my-auto-completion-plugin:78723 SuggestionPopup.close Object
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:58:57.188Z] [ChatAgent] [Process] Starting message processing Object
-plugin:my-auto-completion-plugin:80550 🤖 [2025-02-19T20:58:57.189Z] [AI] [API] Making API request
+plugin:my-auto-completion-plugin:78945 SuggestionPopup.isVisible Object
+plugin:my-auto-completion-plugin:78725 SuggestionPopup.close Object
+plugin:my-auto-completion-plugin:81559 🤖 [2025-02-20T02:16:57.624Z] [ChatAgent] [FileEvent] File opened Object
+plugin:my-auto-completion-plugin:81559 🤖 [2025-02-20T02:16:57.661Z] [ChatAgent] [Create] Created new note Object
+plugin:my-auto-completion-plugin:78945 SuggestionPopup.isVisible Object
+plugin:my-auto-completion-plugin:78725 SuggestionPopup.close Object
+plugin:my-auto-completion-plugin:78945 SuggestionPopup.isVisible Object
+plugin:my-auto-completion-plugin:78725 SuggestionPopup.close Object
+plugin:my-auto-completion-plugin:81559 🤖 [2025-02-20T02:17:20.653Z] [ChatAgent] [Process] Starting message processing Object
+plugin:my-auto-completion-plugin:80632 🤖 [2025-02-20T02:17:20.653Z] [AI] [API] Making API request
 Details: {
   "endpoint": "https://api.openai.com/v1/chat/completions",
-  "requestSize": 2188
+  "requestSize": 5146
 }
-plugin:my-auto-completion-plugin:80550 🤖 [2025-02-19T20:58:58.671Z] [AI] [API] API request successful
+plugin:my-auto-completion-plugin:80632 🤖 [2025-02-20T02:17:22.740Z] [AI] [API] API request successful
 Details: {
-  "responseSize": 845,
+  "responseSize": 983,
   "model": "gpt-4o-2024-08-06",
   "usage": {
-    "prompt_tokens": 397,
-    "completion_tokens": 67,
-    "total_tokens": 464,
+    "prompt_tokens": 964,
+    "completion_tokens": 97,
+    "total_tokens": 1061,
     "prompt_tokens_details": {
       "cached_tokens": 0,
       "audio_tokens": 0
@@ -144,21 +138,19 @@ Details: {
     }
   }
 }
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:58:58.671Z] [ChatAgent] [Process] Query intent analyzed Object
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:58:58.671Z] [ChatAgent] [Search] Looking for relevant document Object
-plugin:my-auto-completion-plugin:80550 🤖 [2025-02-19T20:58:58.672Z] [AI] [API] Making API request
+plugin:my-auto-completion-plugin:80632 🤖 [2025-02-20T02:17:22.740Z] [AI] [API] Making API request
 Details: {
   "endpoint": "https://api.openai.com/v1/chat/completions",
-  "requestSize": 2462
+  "requestSize": 5034
 }
-plugin:my-auto-completion-plugin:80550 🤖 [2025-02-19T20:59:01.152Z] [AI] [API] API request successful
+plugin:my-auto-completion-plugin:80632 🤖 [2025-02-20T02:17:24.437Z] [AI] [API] API request successful
 Details: {
-  "responseSize": 1133,
+  "responseSize": 848,
   "model": "gpt-4o-2024-08-06",
   "usage": {
-    "prompt_tokens": 450,
-    "completion_tokens": 117,
-    "total_tokens": 567,
+    "prompt_tokens": 939,
+    "completion_tokens": 66,
+    "total_tokens": 1005,
     "prompt_tokens_details": {
       "cached_tokens": 0,
       "audio_tokens": 0
@@ -171,118 +163,10 @@ Details: {
     }
   }
 }
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:59:01.152Z] [ChatAgent] [Search] Found relevant document Object
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:59:01.152Z] [ChatAgent] [Process] Found relevant document Object
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:59:01.152Z] [ChatAgent] [General] Handling general intent Object
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:59:18.347Z] [ChatAgent] [Process] Starting message processing Object
-plugin:my-auto-completion-plugin:80550 🤖 [2025-02-19T20:59:18.347Z] [AI] [API] Making API request
-Details: {
-  "endpoint": "https://api.openai.com/v1/chat/completions",
-  "requestSize": 2179
-}
-plugin:my-auto-completion-plugin:80550 🤖 [2025-02-19T20:59:19.987Z] [AI] [API] API request successful
-Details: {
-  "responseSize": 835,
-  "model": "gpt-4o-2024-08-06",
-  "usage": {
-    "prompt_tokens": 396,
-    "completion_tokens": 63,
-    "total_tokens": 459,
-    "prompt_tokens_details": {
-      "cached_tokens": 0,
-      "audio_tokens": 0
-    },
-    "completion_tokens_details": {
-      "reasoning_tokens": 0,
-      "audio_tokens": 0,
-      "accepted_prediction_tokens": 0,
-      "rejected_prediction_tokens": 0
-    }
-  }
-}
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:59:19.987Z] [ChatAgent] [Process] Query intent analyzed Object
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:59:19.987Z] [ChatAgent] [Search] Looking for relevant document Object
-plugin:my-auto-completion-plugin:80550 🤖 [2025-02-19T20:59:19.987Z] [AI] [API] Making API request
-Details: {
-  "endpoint": "https://api.openai.com/v1/chat/completions",
-  "requestSize": 2265
-}
-plugin:my-auto-completion-plugin:80550 🤖 [2025-02-19T20:59:23.310Z] [AI] [API] API request successful
-Details: {
-  "responseSize": 1133,
-  "model": "gpt-4o-2024-08-06",
-  "usage": {
-    "prompt_tokens": 421,
-    "completion_tokens": 119,
-    "total_tokens": 540,
-    "prompt_tokens_details": {
-      "cached_tokens": 0,
-      "audio_tokens": 0
-    },
-    "completion_tokens_details": {
-      "reasoning_tokens": 0,
-      "audio_tokens": 0,
-      "accepted_prediction_tokens": 0,
-      "rejected_prediction_tokens": 0
-    }
-  }
-}
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:59:23.310Z] [ChatAgent] [Search] Found relevant document Object
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:59:23.310Z] [ChatAgent] [Process] Found relevant document Object
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:59:23.310Z] [ChatAgent] [General] Handling general intent Object
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:59:52.757Z] [ChatAgent] [Process] Starting message processing Object
-plugin:my-auto-completion-plugin:80550 🤖 [2025-02-19T20:59:52.758Z] [AI] [API] Making API request
-Details: {
-  "endpoint": "https://api.openai.com/v1/chat/completions",
-  "requestSize": 2197
-}
-plugin:my-auto-completion-plugin:80550 🤖 [2025-02-19T20:59:55.052Z] [AI] [API] API request successful
-Details: {
-  "responseSize": 852,
-  "model": "gpt-4o-2024-08-06",
-  "usage": {
-    "prompt_tokens": 398,
-    "completion_tokens": 67,
-    "total_tokens": 465,
-    "prompt_tokens_details": {
-      "cached_tokens": 0,
-      "audio_tokens": 0
-    },
-    "completion_tokens_details": {
-      "reasoning_tokens": 0,
-      "audio_tokens": 0,
-      "accepted_prediction_tokens": 0,
-      "rejected_prediction_tokens": 0
-    }
-  }
-}
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:59:55.052Z] [ChatAgent] [Process] Query intent analyzed Object
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:59:55.052Z] [ChatAgent] [Search] Looking for relevant document Object
-plugin:my-auto-completion-plugin:80550 🤖 [2025-02-19T20:59:55.053Z] [AI] [API] Making API request
-Details: {
-  "endpoint": "https://api.openai.com/v1/chat/completions",
-  "requestSize": 2471
-}
-plugin:my-auto-completion-plugin:80550 🤖 [2025-02-19T20:59:57.006Z] [AI] [API] API request successful
-Details: {
-  "responseSize": 1007,
-  "model": "gpt-4o-2024-08-06",
-  "usage": {
-    "prompt_tokens": 451,
-    "completion_tokens": 94,
-    "total_tokens": 545,
-    "prompt_tokens_details": {
-      "cached_tokens": 0,
-      "audio_tokens": 0
-    },
-    "completion_tokens_details": {
-      "reasoning_tokens": 0,
-      "audio_tokens": 0,
-      "accepted_prediction_tokens": 0,
-      "rejected_prediction_tokens": 0
-    }
-  }
-}
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:59:57.006Z] [ChatAgent] [Search] Found relevant document Object
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:59:57.006Z] [ChatAgent] [Process] Found relevant document Object
-plugin:my-auto-completion-plugin:81413 🤖 [2025-02-19T20:59:57.006Z] [ChatAgent] [General] Handling general intent Object
+plugin:my-auto-completion-plugin:81559 🤖 [2025-02-20T02:17:24.437Z] [ChatAgent] [Process] Query intent analyzed Object
+plugin:my-auto-completion-plugin:81559 🤖 [2025-02-20T02:17:24.437Z] [ChatAgent] [Search] Looking for relevant document Object
+plugin:my-auto-completion-plugin:81559 🤖 [2025-02-20T02:17:24.439Z] [ChatAgent] [Search] Using document from current context Object
+plugin:my-auto-completion-plugin:81559 🤖 [2025-02-20T02:17:24.439Z] [ChatAgent] [Process] Found relevant document Object
+plugin:my-auto-completion-plugin:81559 🤖 [2025-02-20T02:17:24.439Z] [ChatAgent] [Summary] Handling summarize intent Object
+plugin:my-auto-completion-plugin:80714 [2025-02-20T02:17:24.440Z] [error] I encountered an error while processing your request. Please try again. Object
+plugin:my-auto-completion-plugin:81559 🤖 [2025-02-20T02:17:24.440Z] [ChatAgent] [Error] Error handling summarize intent Object

@@ -623,7 +623,23 @@ ${text}`,
      * Parse the API response for content generation
      */
     private parseContentResponse(response: OpenAIResponse): string {
-        return response.choices[0]?.message?.content || '';
+        try {
+            let content = '';
+            
+            if (response.choices && response.choices.length > 0) {
+                const choice = response.choices[0];
+                content = choice.message?.content || choice.text || '';
+            }
+
+            // Remove markdown fence markers if present
+            content = content.replace(/^```\w*\n/, ''); // Remove opening fence
+            content = content.replace(/\n```$/, ''); // Remove closing fence
+            
+            return content.trim();
+        } catch (error) {
+            this.log('Error', 'Failed to parse content response', { error });
+            throw error;
+        }
     }
 
     /**
