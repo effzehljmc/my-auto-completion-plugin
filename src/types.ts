@@ -36,7 +36,7 @@ export interface ActionExecutionResult {
     success: boolean;
     message: string;
     error?: Error;
-    data?: any;
+    data?: Record<string, unknown>;
 }
 
 export interface IntentAnalysis {
@@ -60,6 +60,14 @@ export interface AIRequestOptions {
     response_format?: { type: "json_object" | "text" };
 }
 
+export interface AICompletionRequest {
+    prompt: string;
+    maxTokens?: number;
+    temperature?: number;
+    model?: string;
+    response_format?: { type: string };
+}
+
 export interface DocumentStructure {
     title: string;
     headings: string[];
@@ -72,4 +80,17 @@ export interface DocumentContext {
     sourceFile?: TFile;
     content?: string;
     currentParagraph?: string;
-} 
+}
+
+export interface ChatMessage {
+    content: string;
+    timestamp: number;
+    documentContext?: DocumentContext;
+    intent?: IntentAnalysis;
+}
+
+export interface ChatState {
+    currentDocument: TFile | null;
+    messageHistory: ChatMessage[];
+    lastActiveDocument: TFile | null;
+}

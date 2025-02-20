@@ -32,7 +32,9 @@ export interface MyAutoCompletionSettings {
     aiTemperature: number,
     aiMaxTokens: number,
     formattingSuggestionsEnabled: boolean,
-    defaultModel: string
+    defaultModel: string,
+    chatStateEnabled: boolean,
+    maxChatHistorySize: number
 }
 
 export const DEFAULT_SETTINGS: MyAutoCompletionSettings = {
@@ -52,11 +54,13 @@ export const DEFAULT_SETTINGS: MyAutoCompletionSettings = {
     calloutProviderEnabled: true,
     calloutProviderSource: CalloutProviderSource.DEFAULT,
     aiApiKey: '',
-    aiModel: 'gpt-4o',
+    aiModel: 'gpt-4',
     aiTemperature: 0.7,
     aiMaxTokens: 500,
     formattingSuggestionsEnabled: false,
-    defaultModel: 'gpt-4o'
+    defaultModel: 'gpt-4',
+    chatStateEnabled: true,
+    maxChatHistorySize: 10
 }
 
 export function intoMyAutoCompletionPath(vault: Vault, ...path: string[]): string {

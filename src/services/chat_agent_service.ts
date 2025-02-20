@@ -68,6 +68,20 @@ export class ChatAgentService {
     private actionGeneratorService: ActionGeneratorService;
     private readonly SYSTEM_PROMPT = "You are a helpful AI assistant that helps users find and understand their documents.";
     private readonly DEFAULT_MODEL = "gpt-4";
+    private chatState: {
+        currentDocument: TFile | null;
+        messageHistory: Array<{
+            content: string;
+            documentContext?: DocumentContext;
+            intent?: any;
+            timestamp: number;
+        }>;
+        lastActiveDocument: TFile | null;
+    } = {
+        currentDocument: null,
+        messageHistory: [],
+        lastActiveDocument: null
+    };
 
     // Document type detection cache to avoid repeated analysis
     private documentTypeCache: Map<string, DocumentMetadata> = new Map();
@@ -135,97 +149,143 @@ export class ChatAgentService {
         this.log('Search', 'Looking for relevant document', { query: message });
         
         try {
-            // Get all markdown files
-            const files = this.app.vault.getMarkdownFiles();
-            
-            // Quick initial filtering based on filename
-            const candidates = files.filter(file => {
-                const fileName = file.basename.toLowerCase();
-                return this.checkFileRelevance(fileName, message);
-            });
-
-            if (candidates.length === 0) {
-                this.log('Search', 'No candidate files found');
-                return null;
+            // 1. First check if we have a document from current context
+            if (context?.sourceFile) {
+                const content = context.content || await this.app.vault.read(context.sourceFile);
+                this.log('Search', 'Using document from current context', { file: context.sourceFile.basename });
+                return {
+                    content,
+                    file: context.sourceFile,
+                    type: this.documentTypeCache.get(context.sourceFile.path)?.type || 'note'
+                };
             }
 
-            // Sort candidates by initial relevance
-            const sortedCandidates = candidates.sort((a, b) => 
-                this.calculateInitialScore(b.basename, message) -
-                this.calculateInitialScore(a.basename, message)
-            );
+            // 2. Check chat state for current document
+            if (this.chatState.currentDocument) {
+                const content = await this.app.vault.read(this.chatState.currentDocument);
+                this.log('Search', 'Using current document from chat state', { file: this.chatState.currentDocument.basename });
+                return {
+                    content,
+                    file: this.chatState.currentDocument,
+                    type: this.documentTypeCache.get(this.chatState.currentDocument.path)?.type || 'note'
+                };
+            }
 
-            // Analyze top candidates in detail
-            const maxCandidates = 3; // Limit detailed analysis to top 3 candidates
-            for (const file of sortedCandidates.slice(0, maxCandidates)) {
-                try {
-                    const content = await this.fileNavigationService.readFileContent(file);
-                    const contentSample = this.createContentSample(content);
-                    
-                    const analysisPrompt = `Analyze this document's relevance to the query.
-                    Query: "${message}"
-                    Content sample: "${contentSample}"
-                    
-                    Return a JSON object:
-                    {
-                        "relevanceScore": number (0-1),
-                        "documentType": "meeting" | "research" | "technical" | "note" | "other",
-                        "confidence": number (0-1),
-                        "reasoning": string
-                    }`;
-
-                    const documentContext: DocumentContext = {
-                        previousParagraphs: [],
-                        currentHeading: '',
-                        documentStructure: {
-                            title: file.basename,
-                            headings: []
-                        },
-                        sourceFile: file,
-                        content: content
+            // 3. Check recent messages for document context
+            const recentMessages = this.chatState.messageHistory.slice(-3);
+            for (const msg of recentMessages) {
+                if (msg.documentContext?.sourceFile) {
+                    const content = await this.app.vault.read(msg.documentContext.sourceFile);
+                    this.log('Search', 'Using document from recent messages', { file: msg.documentContext.sourceFile.basename });
+                    return {
+                        content,
+                        file: msg.documentContext.sourceFile,
+                        type: this.documentTypeCache.get(msg.documentContext.sourceFile.path)?.type || 'note'
                     };
-
-                    const analysisResult = await this.aiService.generateContent(
-                        analysisPrompt,
-                        documentContext,
-                        { response_format: { type: "json_object" } }
-                    );
-
-                    const analysis: DocumentAnalysis = JSON.parse(analysisResult);
-
-                    if (analysis.relevanceScore > 0.7 && analysis.confidence > 0.7) {
-                        this.log('Search', 'Found relevant document', {
-                            file: file.basename,
-                            type: analysis.documentType,
-                            score: analysis.relevanceScore
-                        });
-
-                        // Cache the document type
-                        this.documentTypeCache.set(file.path, {
-                            type: analysis.documentType,
-                            date: null,
-                            author: null,
-                            tags: [],
-                            customFields: {}
-                        });
-
-                        return {
-                            content,
-                            file,
-                            type: analysis.documentType
-                        };
-                    }
-                } catch (error) {
-                    this.log('Error', 'Error analyzing candidate', { 
-                        error,
-                        file: file.basename 
-                    });
-                    continue; // Continue with next candidate if one fails
                 }
             }
 
-            this.log('Search', 'No relevant documents found after analysis');
-            return null;
+            // 4. Only proceed with new document search if the message clearly indicates a different document
+            // Check if the message seems to be asking about a specific different document
+            const isSearchingNewDoc = /\b(find|search|look for|about|in|the|document|note|called|named|titled)\b/i.test(message) &&
+                                    !/\b(it|this|that|the same|previous)\b/i.test(message);
+
+            if (isSearchingNewDoc) {
+                // Proceed with regular search
+                const files = this.app.vault.getMarkdownFiles();
+                
+                // Quick initial filtering based on filename
+                const candidates = files.filter(file => {
+                    const fileName = file.basename.toLowerCase();
+                    return this.checkFileRelevance(fileName, message);
+                });
+
+                if (candidates.length === 0) {
+                    this.log('Search', 'No candidate files found for new search');
+                    return null;
+                }
+
+                // Sort candidates by initial relevance
+                const sortedCandidates = candidates.sort((a, b) => 
+                    this.calculateInitialScore(b.basename, message) -
+                    this.calculateInitialScore(a.basename, message)
+                );
+
+                // Analyze top candidates in detail
+                const maxCandidates = 3; // Limit detailed analysis to top 3 candidates
+                for (const file of sortedCandidates.slice(0, maxCandidates)) {
+                    try {
+                        const content = await this.fileNavigationService.readFileContent(file);
+                        const contentSample = this.createContentSample(content);
+                        
+                        const analysisPrompt = `Analyze this document's relevance to the query.
+                        Query: "${message}"
+                        Content sample: "${contentSample}"
+                        
+                        Return a JSON object:
+                        {
+                            "relevanceScore": number (0-1),
+                            "documentType": "meeting" | "research" | "technical" | "note" | "other",
+                            "confidence": number (0-1),
+                            "reasoning": string
+                        }`;
+
+                        const documentContext: DocumentContext = {
+                            previousParagraphs: [],
+                            currentHeading: '',
+                            documentStructure: {
+                                title: file.basename,
+                                headings: []
+                            },
+                            sourceFile: file,
+                            content: content
+                        };
+
+                        const analysisResult = await this.aiService.generateContent(
+                            analysisPrompt,
+                            documentContext,
+                            { response_format: { type: "json_object" } }
+                        );
+
+                        const analysis: DocumentAnalysis = JSON.parse(analysisResult);
+
+                        if (analysis.relevanceScore > 0.7 && analysis.confidence > 0.7) {
+                            this.log('Search', 'Found relevant document', {
+                                file: file.basename,
+                                type: analysis.documentType,
+                                score: analysis.relevanceScore
+                            });
+
+                            // Cache the document type
+                            this.documentTypeCache.set(file.path, {
+                                type: analysis.documentType,
+                                date: null,
+                                author: null,
+                                tags: [],
+                                customFields: {}
+                            });
+
+                            return {
+                                content,
+                                file,
+                                type: analysis.documentType
+                            };
+                        }
+                    } catch (error) {
+                        this.log('Error', 'Error analyzing candidate', { 
+                            error,
+                            file: file.basename 
+                        });
+                        continue; // Continue with next candidate if one fails
+                    }
+                }
+
+                this.log('Search', 'No relevant documents found after analysis');
+                return null;
+            } else {
+                this.log('Search', 'No clear indication of new document search, using last discussed document');
+                return null; // Will fall back to last discussed document in the intent handlers
+            }
         } catch (error) {
             this.log('Error', 'Error finding relevant document', { error });
             return null;
@@ -675,13 +735,24 @@ Return a JSON object:
         });
 
         try {
-            if (!context?.sourceFile || !context?.content) {
+            // First try to find the relevant document
+            const documentInfo = await this.findRelevantDocument(message, context);
+            
+            if (!documentInfo) {
+                this.log('Summary', 'No document found to summarize');
                 return "I couldn't find the document to summarize. Could you please specify which document you'd like me to summarize?";
             }
 
-            const contentSample = this.createContentSample(context.content);
+            const { content, file, type } = documentInfo;
             
-            const summaryPrompt = `Create a concise summary of this ${intent.documentType} document.
+            this.log('Summary', 'Found document to summarize', {
+                file: file.basename,
+                type: type
+            });
+
+            const contentSample = this.createContentSample(content);
+            
+            const summaryPrompt = `Create a concise summary of this ${type} document.
             
 Document: "${contentSample}"
 
@@ -694,13 +765,40 @@ Keep the summary clear and to-the-point.`;
 
             const summary = await this.aiService.generateContent(
                 summaryPrompt,
-                context
+                {
+                    previousParagraphs: [content],
+                    currentHeading: '',
+                    documentStructure: {
+                        title: file.basename,
+                        headings: []
+                    },
+                    sourceFile: file,
+                    content: content
+                }
             );
+
+            // Update chat state with the current document
+            this.chatState.currentDocument = file;
+            this.chatState.messageHistory.push({
+                content: message,
+                documentContext: {
+                    sourceFile: file,
+                    content: content,
+                    currentHeading: '',
+                    previousParagraphs: [],
+                    documentStructure: {
+                        title: file.basename,
+                        headings: []
+                    }
+                },
+                intent: intent,
+                timestamp: Date.now()
+            });
 
             return summary;
         } catch (error) {
             this.log('Error', 'Error handling summarize intent', { error });
-            return `I encountered an error while summarizing: ${error.message}`;
+            throw error; // Let the error propagate up to be handled by the main error handler
         }
     }
 

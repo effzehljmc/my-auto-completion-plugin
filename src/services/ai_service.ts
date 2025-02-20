@@ -6,7 +6,7 @@
 import { App, Editor, TFile, CachedMetadata } from 'obsidian';
 import { SettingsService } from './settings_service';
 import { TOKEN_LIMITS, DEFAULT_MODEL, SYSTEM_PROMPTS } from '../constants';
-import { AIRequestOptions, DocumentContext, IntentAnalysis } from '../types';
+import { AIRequestOptions, DocumentContext, IntentAnalysis, ChatState, ChatMessage } from '../types';
 
 export interface AICompletionRequest {
     prompt: string;
@@ -89,6 +89,11 @@ export class AIService {
     private readonly SYSTEM_PROMPT = SYSTEM_PROMPTS.AI_SERVICE;
     private readonly TOKEN_LIMITS = TOKEN_LIMITS;
     private readonly DEFAULT_MODEL = DEFAULT_MODEL;
+    private chatState: ChatState = {
+        currentDocument: null,
+        messageHistory: [],
+        lastActiveDocument: null
+    };
 
     /**
      * Monitoring interface for tracking AI service performance and errors
@@ -133,6 +138,15 @@ export class AIService {
      * Uses LLM to understand the user's intent and find relevant notes
      */
     async detectReferencedNote(query: string): Promise<TFile | null> {
+        // First check if "this note" refers to current or last active document
+        if (query.toLowerCase().includes("this note")) {
+            if (this.chatState.currentDocument) {
+                return this.chatState.currentDocument;
+            } else if (this.chatState.lastActiveDocument) {
+                return this.chatState.lastActiveDocument;
+            }
+        }
+
         const files = this.app.vault.getMarkdownFiles();
 
         try {
@@ -287,68 +301,115 @@ Return JSON:
         conversationHistory?: string
     ): Promise<AICompletionResponse[]> {
         try {
-            // Create a more natural prompt that includes all context
-            const prompt = this.createNaturalPrompt(currentText, context, conversationHistory);
+            // Update chat state
+            await this.updateChatState(currentText, context);
             
-            const maxTokens = this.calculateMaxTokens(prompt, currentText);
-            const temperature = this.calculateTemperature(context);
+            // Get chat context for analysis
+            const chatContext = this.getChatContext();
 
-            const response = await this.makeAIRequest({
-                prompt,
-                maxTokens,
-                temperature,
-                model: this.DEFAULT_MODEL,
+            // First, analyze the message internally
+            const internalAnalysis = await this.makeAIRequest({
+                prompt: `${SYSTEM_PROMPTS.AI_SERVICE}
+
+Previous conversation:
+${chatContext}
+
+Analyze this message and determine if it requires specific note access.
+Message: ${currentText}
+
+Return a JSON object with this structure:
+{
+    "requiresNoteAccess": boolean,
+    "noteType": string | null,
+    "confidence": number,
+    "action": string | null
+}`,
+                maxTokens: 200,
+                temperature: 0.3,
                 response_format: { type: "json_object" }
             });
 
-            return this.parseCompletionResponse(response);
+            const analysis = this.safeJSONParse<{
+                requiresNoteAccess: boolean;
+                noteType: string | null;
+                confidence: number;
+                action: string | null;
+            }>(internalAnalysis.choices[0]?.message?.content || '');
+
+            if (!analysis) {
+                throw new AIServiceError(
+                    'Failed to parse message analysis',
+                    'PARSE_ERROR',
+                    { message: currentText }
+                );
+            }
+
+            if (analysis.requiresNoteAccess && analysis.confidence > 0.7) {
+                const relevantNotes = await this.findRelevantNotes(currentText).catch((error): Array<{ content: string; file: TFile }> => {
+                    console.warn('Failed to find relevant notes:', error);
+                    return [];
+                });
+                
+                if (relevantNotes.length > 0) {
+                    try {
+                        const userResponse = await this.makeAIRequest({
+                            prompt: `Generate a helpful response based on these notes:
+                            ${relevantNotes.map(note => this.formatNotePreview(note)).join('\n')}
+                            
+                            User message: ${currentText}
+                            
+                            Provide a natural, direct response that answers the user's question 
+                            or fulfills their request without mentioning the internal note analysis.`,
+                            maxTokens: 500,
+                            temperature: 0.7,
+                            response_format: { type: "json_object" }
+                        });
+
+                        return this.parseCompletionResponse(userResponse);
+                    } catch (error) {
+                        throw new AIServiceError(
+                            'Failed to generate response from notes',
+                            'GENERATION_ERROR',
+                            { originalError: error, noteCount: relevantNotes.length }
+                        );
+                    }
+                }
+            }
+
+            // Fallback to general response
+            const generalResponse = await this.makeAIRequest({
+                prompt: `${SYSTEM_PROMPTS.AI_SERVICE}
+
+Previous conversation:
+${chatContext}
+
+User message: ${currentText}
+
+Provide a helpful, natural response that directly addresses the user's message.`,
+                maxTokens: 500,
+                temperature: 0.7,
+                response_format: { type: "json_object" }
+            }).catch(error => {
+                throw new AIServiceError(
+                    'Failed to generate general response',
+                    'GENERATION_ERROR',
+                    { originalError: error }
+                );
+            });
+
+            return this.parseCompletionResponse(generalResponse);
         } catch (error) {
-            console.error('Error getting completion suggestions:', error);
-            throw new Error(`Failed to get completion suggestions: ${error.message}`);
+            return this.handleError(error, 'getCompletionSuggestions');
         }
     }
 
     /**
-     * Creates a natural language prompt that includes all relevant context
+     * Format a note preview for display in responses
+     * @private
      */
-    private createNaturalPrompt(
-        currentText: string,
-        context?: DocumentContext,
-        conversationHistory?: string
-    ): string {
-        const parts: string[] = [];
-
-        // Add conversation history if available
-        if (conversationHistory) {
-            parts.push(`Previous conversation:\n${conversationHistory}`);
-        }
-
-        // Add document context if available
-        if (context) {
-            if (context.documentStructure?.title) {
-                parts.push(`You are looking at a note titled "${context.documentStructure.title}"`);
-            }
-            
-            if (context.previousParagraphs?.length > 0) {
-                parts.push("Here's the relevant content from the note:\n" + context.previousParagraphs.join('\n'));
-            }
-            
-            if (context.documentStructure?.headings?.length > 0) {
-                parts.push("The note contains these sections:\n" + context.documentStructure.headings.join('\n'));
-            }
-        }
-
-        // Add the current request
-        parts.push(`The user asks: ${currentText}`);
-
-        // Add instruction based on the type of request
-        if (currentText.toLowerCase().includes('summarize') || currentText.toLowerCase().includes('summary')) {
-            parts.push('Please provide a clear and concise summary of the relevant content.');
-        } else {
-            parts.push('Please provide a helpful response based on the available context.');
-        }
-
-        return parts.join('\n\n');
+    private formatNotePreview(note: { content: string; file: TFile }): string {
+        return `Title: ${note.file.basename}
+Content preview: ${note.content.slice(0, 500)}...`;
     }
 
     /**
@@ -360,6 +421,9 @@ Return JSON:
         options?: AIRequestOptions
     ): Promise<string> {
         try {
+            // Update chat state
+            await this.updateChatState(prompt, context);
+            
             const request: AICompletionRequest = {
                 prompt: this.createPromptWithContext(prompt, context),
                 response_format: options?.response_format,
@@ -392,6 +456,21 @@ Return JSON:
         try {
             this.log('Summary', 'Reading file content');
             const content = await this.app.vault.read(file);
+            
+            // Create document context for the summary
+            const context: DocumentContext = {
+                previousParagraphs: [content],
+                currentHeading: '',
+                documentStructure: {
+                    title: file.basename,
+                    headings: []
+                },
+                sourceFile: file
+            };
+            
+            // Update chat state with summary request
+            await this.updateChatState('Generate a summary of this document', context);
+
             this.log('Summary', 'File content loaded', {
                 contentLength: content.length,
                 fileName: file.basename
@@ -464,40 +543,175 @@ ${text}`,
     }
 
     /**
+     * Process a user message with enhanced error handling and recovery
+     */
+    async processMessage(
+        message: string,
+        context?: DocumentContext
+    ): Promise<AICompletionResponse[]> {
+        if (!this.apiKey) {
+            throw new AIServiceError(
+                'API key not configured',
+                'AUTH_ERROR'
+            );
+        }
+
+        try {
+            // Update chat state first
+            await this.updateChatState(message, context);
+            
+            // Get chat context for analysis
+            const chatContext = this.getChatContext();
+
+            // First, analyze the message internally
+            const internalAnalysis = await this.makeAIRequest({
+                prompt: `${SYSTEM_PROMPTS.AI_SERVICE}
+
+Previous conversation:
+${chatContext}
+
+Analyze this message and determine if it requires specific note access.
+Message: ${message}
+
+Return a JSON object with this structure:
+{
+    "requiresNoteAccess": boolean,
+    "noteType": string | null,
+    "confidence": number,
+    "action": string | null
+}`,
+                maxTokens: 200,
+                temperature: 0.3,
+                response_format: { type: "json_object" }
+            });
+
+            const analysis = this.safeJSONParse<{
+                requiresNoteAccess: boolean;
+                noteType: string | null;
+                confidence: number;
+                action: string | null;
+            }>(internalAnalysis.choices[0]?.message?.content || '');
+
+            if (!analysis) {
+                throw new AIServiceError(
+                    'Failed to parse message analysis',
+                    'PARSE_ERROR',
+                    { message }
+                );
+            }
+
+            if (analysis.requiresNoteAccess && analysis.confidence > 0.7) {
+                const relevantNotes = await this.findRelevantNotes(message).catch((error): Array<{ content: string; file: TFile }> => {
+                    console.warn('Failed to find relevant notes:', error);
+                    return [];
+                });
+                
+                if (relevantNotes.length > 0) {
+                    try {
+                        const userResponse = await this.makeAIRequest({
+                            prompt: `Generate a helpful response based on these notes:
+                            ${relevantNotes.map(note => this.formatNotePreview(note)).join('\n')}
+                            
+                            User message: ${message}
+                            
+                            Provide a natural, direct response that answers the user's question 
+                            or fulfills their request without mentioning the internal note analysis.`,
+                            maxTokens: 500,
+                            temperature: 0.7,
+                            response_format: { type: "json_object" }
+                        });
+
+                        return this.parseCompletionResponse(userResponse);
+                    } catch (error) {
+                        throw new AIServiceError(
+                            'Failed to generate response from notes',
+                            'GENERATION_ERROR',
+                            { originalError: error, noteCount: relevantNotes.length }
+                        );
+                    }
+                }
+            }
+
+            // Fallback to general response
+            const generalResponse = await this.makeAIRequest({
+                prompt: `${SYSTEM_PROMPTS.AI_SERVICE}
+
+Previous conversation:
+${chatContext}
+
+User message: ${message}
+
+Provide a helpful, natural response that directly addresses the user's message.`,
+                maxTokens: 500,
+                temperature: 0.7,
+                response_format: { type: "json_object" }
+            }).catch(error => {
+                throw new AIServiceError(
+                    'Failed to generate general response',
+                    'GENERATION_ERROR',
+                    { originalError: error }
+                );
+            });
+
+            return this.parseCompletionResponse(generalResponse);
+        } catch (error) {
+            return this.handleError(error, 'processMessage');
+        }
+    }
+
+    /**
      * Makes a request to the AI API with improved error handling and token management
      * @private
      * @param request The AI completion request
      * @returns OpenAI API response
      */
-    private async makeAIRequest(options: AICompletionRequest): Promise<OpenAIResponse> {
+    private async makeAIRequest({
+        prompt,
+        maxTokens = this.TOKEN_LIMITS.COMPLETION,
+        temperature = this.DEFAULT_TEMPERATURE,
+        model = this.DEFAULT_MODEL,
+        response_format
+    }: {
+        prompt: string;
+        maxTokens?: number;
+        temperature?: number;
+        model?: string;
+        response_format?: { type: string };
+    }): Promise<OpenAIResponse> {
         if (!this.apiKey) {
-            throw new AIServiceError('API key not configured', 'AUTH_ERROR');
+            throw new AIServiceError('OpenAI API key not set', 'API_KEY_ERROR');
         }
         
-        // Always use gpt-4o for fastest performance
-        const requestBody = {
-            model: DEFAULT_MODEL,
-            messages: [
-                {
-                    role: 'system',
-                    content: this.SYSTEM_PROMPT
-                },
-                {
-                    role: 'user',
-                    content: options.prompt
-                }
-            ],
-            max_tokens: options.maxTokens,
-            temperature: options.temperature,
-            ...(options.response_format && { response_format: options.response_format })
-        };
+        // Include chat context in system prompt if enabled
+        const settings = await this.settingsService.getSettings();
+        let fullSystemPrompt = SYSTEM_PROMPTS.AI_SERVICE;
+        
+        if (settings.chatStateEnabled) {
+            const chatContext = this.getChatContext();
+            if (chatContext) {
+                fullSystemPrompt += `\n\nPrevious conversation context:\n${chatContext}`;
+            }
+        }
 
-        this.log('API', 'Making API request', {
-            endpoint: 'https://api.openai.com/v1/chat/completions',
-            requestSize: JSON.stringify(requestBody).length
-        });
+        const messages = [
+            { role: 'system', content: fullSystemPrompt },
+            { role: 'user', content: prompt }
+        ];
 
         try {
+            const requestBody = {
+                model,
+                messages,
+                max_tokens: maxTokens,
+                temperature,
+                ...(response_format && { response_format })
+            };
+
+            this.log('API', 'Making API request', {
+                endpoint: 'https://api.openai.com/v1/chat/completions',
+                requestSize: JSON.stringify(requestBody).length
+            });
+
             const response = await fetch('https://api.openai.com/v1/chat/completions', {
                 method: 'POST',
                 headers: {
@@ -653,7 +867,7 @@ ${text}`,
         }
         
         if (context.previousParagraphs?.length > 0) {
-            parts.push('Previous context:\n' + context.previousParagraphs.join('\n'));
+            parts.push("Here's the relevant content from the note:\n" + context.previousParagraphs.join('\n'));
         }
         
         return parts.join('\n\n');
@@ -725,122 +939,6 @@ ${text}`,
         return lines
             .filter(line => line.trim().startsWith('#'))
             .map(line => line.trim().replace(/^#+\s*/, ''));
-    }
-
-    /**
-     * Process a user message with enhanced error handling and recovery
-     */
-    async processMessage(
-        message: string,
-        conversationHistory?: string
-    ): Promise<AICompletionResponse[]> {
-        if (!this.apiKey) {
-            throw new AIServiceError(
-                'API key not configured',
-                'AUTH_ERROR'
-            );
-        }
-
-        try {
-            // First, analyze the message internally
-            const internalAnalysis = await this.makeAIRequest({
-                prompt: `${this.SYSTEM_PROMPT}
-
-Previous conversation:
-${conversationHistory || 'No previous conversation'}
-
-Analyze this message and determine if it requires specific note access.
-Message: ${message}
-
-Return a JSON object with this structure:
-{
-    "requiresNoteAccess": boolean,
-    "noteType": string | null,
-    "confidence": number,
-    "action": string | null
-}`,
-                maxTokens: 200,
-                temperature: 0.3,
-                response_format: { type: "json_object" }
-            });
-
-            const analysis = this.safeJSONParse<{
-                requiresNoteAccess: boolean;
-                noteType: string | null;
-                confidence: number;
-                action: string | null;
-            }>(internalAnalysis.choices[0]?.message?.content || '');
-
-            if (!analysis) {
-                throw new AIServiceError(
-                    'Failed to parse message analysis',
-                    'PARSE_ERROR',
-                    { message }
-                );
-            }
-
-            if (analysis.requiresNoteAccess && analysis.confidence > 0.7) {
-                const relevantNotes = await this.findRelevantNotes(message).catch((error): Array<{ content: string; file: TFile }> => {
-                    console.warn('Failed to find relevant notes:', error);
-                    return [];
-                });
-                
-                if (relevantNotes.length > 0) {
-                    try {
-                        const userResponse = await this.makeAIRequest({
-                            prompt: `Generate a helpful response based on these notes:
-                            ${relevantNotes.map(note => this.formatNotePreview(note)).join('\n')}
-                            
-                            User message: ${message}
-                            
-                            Provide a natural, direct response that answers the user's question 
-                            or fulfills their request without mentioning the internal note analysis.`,
-                            maxTokens: 500,
-                            temperature: 0.7,
-                            response_format: { type: "json_object" }
-                        });
-
-                        return this.parseCompletionResponse(userResponse);
-                    } catch (error) {
-                        throw new AIServiceError(
-                            'Failed to generate response from notes',
-                            'GENERATION_ERROR',
-                            { originalError: error, noteCount: relevantNotes.length }
-                        );
-                    }
-                }
-            }
-
-            // Fallback to general response
-            const generalResponse = await this.makeAIRequest({
-                prompt: `${this.SYSTEM_PROMPT}
-
-Previous conversation:
-${conversationHistory || 'No previous conversation'}
-
-User message: ${message}
-
-Provide a helpful, natural response that directly addresses the user's message.`,
-                maxTokens: 500,
-                temperature: 0.7,
-                response_format: { type: "json_object" }
-            }).catch(error => {
-                throw new AIServiceError(
-                    'Failed to generate general response',
-                    'GENERATION_ERROR',
-                    { originalError: error }
-                );
-            });
-
-            return this.parseCompletionResponse(generalResponse);
-        } catch (error) {
-            return this.handleError(error, 'processMessage');
-        }
-    }
-
-    private formatNotePreview(note: { content: string; file: TFile }): string {
-        return `Title: ${note.file.basename}
-Content preview: ${note.content.slice(0, 500)}...`;
     }
 
     /**
@@ -1339,13 +1437,60 @@ The response must be a valid JSON object with exactly this structure:
     }
 
     private createPromptWithContext(prompt: string, context?: DocumentContext): string {
-        let fullPrompt = this.SYSTEM_PROMPT + '\n\n';
+        let fullPrompt = SYSTEM_PROMPTS.AI_SERVICE + '\n\n';
         
         if (context) {
             fullPrompt += this.formatContext(context) + '\n\n';
         }
         
         return fullPrompt + prompt;
+    }
+
+    /**
+     * Update chat state with new message and context
+     * @private
+     */
+    private async updateChatState(message: string, documentContext?: DocumentContext) {
+        const settings = await this.settingsService.getSettings();
+        if (!settings.chatStateEnabled) return;
+
+        const intent = await this.analyzeIntent(message, documentContext || {
+            previousParagraphs: [],
+            currentHeading: '',
+            documentStructure: { title: '', headings: [] }
+        });
+
+        const chatMessage: ChatMessage = {
+            content: message,
+            timestamp: Date.now(),
+            documentContext,
+            intent
+        };
+
+        this.chatState.messageHistory.push(chatMessage);
+        
+        // Update current document if context is provided
+        if (documentContext?.sourceFile) {
+            this.chatState.lastActiveDocument = this.chatState.currentDocument;
+            this.chatState.currentDocument = documentContext.sourceFile;
+        }
+
+        // Maintain history size limit
+        if (this.chatState.messageHistory.length > settings.maxChatHistorySize) {
+            this.chatState.messageHistory.shift();
+        }
+    }
+
+    /**
+     * Get recent chat context for improved responses
+     * @private
+     */
+    private getChatContext(): string {
+        const recentMessages = this.chatState.messageHistory
+            .slice(-3) // Get last 3 messages for context
+            .map(msg => `Message: ${msg.content}\nContext: ${msg.documentContext?.currentHeading || 'None'}`);
+        
+        return recentMessages.join('\n');
     }
 
     /**
