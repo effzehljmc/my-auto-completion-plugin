@@ -320,7 +320,40 @@ ${end}`.slice(0, 1500); // Limit sample size
             - "create a table of contents" -> style + note (styleAction: "toc")
             - "organize content into sections" -> style + note (styleAction: "sections")
             - "add YAML frontmatter" -> style + note (styleAction: "frontmatter")
-            - "format this note" -> format + note`;
+            - "format this note" -> format + note
+            - "what can I do to improve this note" -> style + note (styleAction: "all")
+            - "suggest improvements for this document" -> style + note (styleAction: "all")
+            - "help me organize this content better" -> style + note (styleAction: "sections")
+            - "what actions are available for this document" -> style + note (styleAction: "all")`;
+
+            // Pre-process the message to detect improvement-related queries
+            const normalizedMessage = message.toLowerCase();
+            if (
+                normalizedMessage.includes('what can i do to improve') ||
+                normalizedMessage.includes('suggest improvements') ||
+                normalizedMessage.includes('help me organize') ||
+                normalizedMessage.includes('what actions are available')
+            ) {
+                // Override as a style intent for improvement queries
+                return {
+                    queryType: 'style',
+                    documentType: 'note',
+                    confidence: 0.9,
+                    expectedMetadata: {
+                        topic: 'document improvements',
+                        keywords: ['improve', 'organize', 'suggestions'],
+                        category: 'improvement',
+                        newName: null,
+                        targetFolder: null,
+                        styleAction: 'all',
+                        styleOptions: {
+                            citationStyle: null,
+                            tocDepth: null,
+                            frontmatterFields: null
+                        }
+                    }
+                };
+            }
 
             const analysisResult = await this.aiService.generateContent(
                 prompt,
@@ -1027,6 +1060,18 @@ Provide a clear and specific answer based on the document content. If the answer
             let modifiedContent = content;
             const styleAction = intent.expectedMetadata.styleAction;
 
+            // Handle document analysis commands
+            if (message.toLowerCase().includes('what can i do') || 
+                message.toLowerCase().includes('actions are available')) {
+                return await this.analyzeDocumentCapabilities(context.sourceFile, content);
+            }
+
+            // Handle improvement suggestions
+            if (message.toLowerCase().includes('suggest improvements') || 
+                message.toLowerCase().includes('help me organize')) {
+                return await this.suggestDocumentImprovements(context.sourceFile, content);
+            }
+
             switch (styleAction) {
                 case 'citations':
                     modifiedContent = await this.addCitations(content);
@@ -1066,6 +1111,115 @@ Provide a clear and specific answer based on the document content. If the answer
         } catch (error) {
             this.log('Error', 'Error handling style intent', { error });
             return `I encountered an error: ${error.message}`;
+        }
+    }
+
+    private async analyzeDocumentCapabilities(file: TFile, content: string): Promise<string> {
+        const prompt = `Analyze this document and list all possible actions that could be taken to improve or work with it.
+        Consider the document's current state and structure.
+        
+        Document Title: ${file.basename}
+        Content:
+        ${content}
+        
+        Return a JSON object with this structure:
+        {
+            "currentFeatures": string[],
+            "possibleImprovements": string[],
+            "recommendedActions": string[],
+            "documentType": string,
+            "complexity": "low" | "medium" | "high"
+        }`;
+
+        try {
+            const analysisResult = await this.aiService.generateContent(
+                prompt,
+                undefined,
+                { response_format: { type: "json_object" } }
+            );
+
+            const analysis = JSON.parse(analysisResult);
+
+            return `Here's what you can do with "${file.basename}":
+
+Current Features:
+${analysis.currentFeatures.map((f: string) => `- ${f}`).join('\n')}
+
+Possible Improvements:
+${analysis.possibleImprovements.map((i: string) => `- ${i}`).join('\n')}
+
+Recommended Actions:
+${analysis.recommendedActions.map((a: string) => `- ${a}`).join('\n')}
+
+This appears to be a ${analysis.complexity} complexity ${analysis.documentType.toLowerCase()} document.
+
+Would you like me to help you implement any of these improvements?`;
+        } catch (error) {
+            this.log('Error', 'Error analyzing document capabilities', { error });
+            return "I encountered an error while analyzing the document's capabilities. Please try again.";
+        }
+    }
+
+    private async suggestDocumentImprovements(file: TFile, content: string): Promise<string> {
+        const prompt = `Analyze this document and suggest specific improvements for better organization and clarity.
+        Consider structure, formatting, content organization, and metadata.
+        
+        Document Title: ${file.basename}
+        Content:
+        ${content}
+        
+        Return a JSON object with this structure:
+        {
+            "structuralImprovements": {
+                "description": string,
+                "suggestions": string[]
+            },
+            "contentOrganization": {
+                "description": string,
+                "suggestions": string[]
+            },
+            "metadata": {
+                "description": string,
+                "suggestions": string[]
+            },
+            "formatting": {
+                "description": string,
+                "suggestions": string[]
+            },
+            "priority": "high" | "medium" | "low"
+        }`;
+
+        try {
+            const analysisResult = await this.aiService.generateContent(
+                prompt,
+                undefined,
+                { response_format: { type: "json_object" } }
+            );
+
+            const analysis = JSON.parse(analysisResult);
+
+            return `I've analyzed "${file.basename}" and here are my suggestions for improvement:
+
+Structure:
+${analysis.structuralImprovements.description}
+${analysis.structuralImprovements.suggestions.map((s: string) => `- ${s}`).join('\n')}
+
+Content Organization:
+${analysis.contentOrganization.description}
+${analysis.contentOrganization.suggestions.map((s: string) => `- ${s}`).join('\n')}
+
+Metadata:
+${analysis.metadata.description}
+${analysis.metadata.suggestions.map((s: string) => `- ${s}`).join('\n')}
+
+Formatting:
+${analysis.formatting.description}
+${analysis.formatting.suggestions.map((s: string) => `- ${s}`).join('\n')}
+
+These improvements are considered ${analysis.priority} priority. Would you like me to help you implement any of these changes?`;
+        } catch (error) {
+            this.log('Error', 'Error suggesting improvements', { error });
+            return "I encountered an error while analyzing potential improvements. Please try again.";
         }
     }
 
